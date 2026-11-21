@@ -1,0 +1,6 @@
+{
+  "name": "GLOBALUS: Mission of Globalization",
+  "description": "Game edukasi petualangan 3D interaktif Sosiologi kelas XII tentang bentuk-bentuk dan proses terjadinya globalisasi di GLOBALUS Space Station.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

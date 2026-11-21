@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <radialGradient id="bgGlow" cx="50%" cy="45%" r="58%">
+      <stop offset="0%" stop-color="#0f2854" />
+      <stop offset="65%" stop-color="#08122b" />
+      <stop offset="100%" stop-color="#060916" />
+    </radialGradient>
+    <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="50%" stop-color="#22d3ee" />
+      <stop offset="100%" stop-color="#818cf8" />
+    </linearGradient>
+    <linearGradient id="visorGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#e0f2fe" />
+      <stop offset="45%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#0284c7" />
+    </linearGradient>
+  </defs>
+
+  <!-- Full-bleed space backdrop -->
+  <rect width="512" height="512" rx="96" fill="url(#bgGlow)" />
+
+  <!-- Subtle stars -->
+  <circle cx="88" cy="108" r="4" fill="#bae6fd" opacity="0.7" />
+  <circle cx="424" cy="96" r="5" fill="#7dd3fc" opacity="0.8" />
+  <circle cx="104" cy="404" r="3.5" fill="#c7d2fe" opacity="0.6" />
+  <circle cx="412" cy="396" r="4" fill="#38bdf8" opacity="0.7" />
+
+  <!-- Outer station ring -->
+  <circle cx="256" cy="256" r="186" fill="none" stroke="url(#ringGrad)" stroke-width="10" opacity="0.35" />
+  <circle cx="256" cy="256" r="152" fill="#091636" stroke="url(#ringGrad)" stroke-width="14" />
+
+  <!-- Globe meridian & latitude network lines -->
+  <ellipse cx="256" cy="256" rx="74" ry="150" fill="none" stroke="#38bdf8" stroke-width="7" opacity="0.65" />
+  <ellipse cx="256" cy="256" rx="150" ry="62" fill="none" stroke="#22d3ee" stroke-width="7" opacity="0.55" />
+  <line x1="106" y1="256" x2="406" y2="256" stroke="#7dd3fc" stroke-width="6" opacity="0.45" />
+  <line x1="256" y1="106" x2="256" y2="406" stroke="#7dd3fc" stroke-width="6" opacity="0.45" />
+
+  <!-- Tilted orbital station ring -->
+  <ellipse
+    cx="256"
+    cy="256"
+    rx="212"
+    ry="68"
+    transform="rotate(-24 256 256)"
+    fill="none"
+    stroke="#38bdf8"
+    stroke-width="12"
+    stroke-linecap="round"
+  />
+
+  <!-- Stylized astronaut visor core -->
+  <rect x="176" y="196" width="160" height="108" rx="52" fill="#060d22" stroke="#bae6fd" stroke-width="10" />
+  <rect x="190" y="210" width="132" height="80" rx="40" fill="url(#visorGrad)" />
+  <path d="M214 228 C236 220, 266 220, 290 228" fill="none" stroke="#ffffff" stroke-width="10" stroke-linecap="round" opacity="0.85" />
+
+  <!-- Orbital network nodes -->
+  <circle cx="448" cy="170" r="16" fill="#34d399" stroke="#060916" stroke-width="5" />
+  <circle cx="64" cy="342" r="16" fill="#fbbf24" stroke="#060916" stroke-width="5" />
+  <circle cx="256" cy="70" r="13" fill="#38bdf8" stroke="#060916" stroke-width="4" />
+</svg>

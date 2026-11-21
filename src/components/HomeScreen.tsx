@@ -25,19 +25,22 @@ import {
   Music,
   Headphones,
   Pause,
+  Wifi,
+  WifiOff,
 } from 'lucide-react';
-import { MUSIC_TRACKS, soundEngine } from '../audio/soundEngine';
-import { CreatorInfo, GameSettings, GraphicsQuality, SaveState, ScreenView } from '../types/game';
+import { MUSIC_TRACKS, normalizeMusicTrackId, soundEngine } from '../audio/soundEngine';
+import { GameSettings, GraphicsQuality, SaveState, ScreenView } from '../types/game';
 import { SpaceBackdrop3D } from './SpaceBackdrop3D';
 
 interface HomeScreenProps {
   view: 'home' | 'howtoplay' | 'settings' | 'about';
   saveState: SaveState;
+  isOnline?: boolean;
   onNavigate: (view: ScreenView) => void;
   onPlayGame: () => void;
   onOpenMultiplayer: () => void;
+  onOpenTutorial?: () => void;
   onUpdateSettings: (next: GameSettings) => void;
-  onUpdateCreator: (next: CreatorInfo) => void;
   onResetProgress: () => void;
 }
 
@@ -87,17 +90,16 @@ const TUTORIAL_STEPS = [
 export const HomeScreen: React.FC<HomeScreenProps> = ({
   view,
   saveState,
+  isOnline = true,
   onNavigate,
   onPlayGame,
   onOpenMultiplayer,
+  onOpenTutorial,
   onUpdateSettings,
-  onUpdateCreator,
   onResetProgress,
 }) => {
   const [tutStep, setTutStep] = useState(0);
   const [confirmReset, setConfirmReset] = useState(false);
-  const [editingCreator, setEditingCreator] = useState(false);
-  const [creatorDraft, setCreatorDraft] = useState<CreatorInfo>(saveState.creatorInfo);
 
   const hasProgress =
     saveState.completedMissions.length > 0 || saveState.totalExp > 0;
@@ -115,25 +117,37 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       <div className="fixed inset-0 z-[1] bg-gradient-to-r from-[#040714]/90 via-[#040714]/60 to-transparent pointer-events-none" />
 
       {view === 'home' && (
-        <div className="relative z-10 w-full h-full flex items-center justify-between px-6 md:px-14 py-6">
-          <div className="max-w-xl w-full flex flex-col gap-4">
+        <div className="relative z-10 w-full h-full overflow-y-auto sci-scroll flex items-center justify-between px-5 sm:px-6 md:px-14 py-5 safe-hud-inset">
+          <div className="max-w-xl w-full flex flex-col gap-3.5 my-auto">
             <div>
-              <p className="text-xs md:text-sm font-medium tracking-widest uppercase text-sky-400 mb-2">
-                Sosiologi Kelas XII SMA · Petualangan Edukasi 3D
-              </p>
-              <h1 className="font-display text-4xl sm:text-5xl md:text-6xl font-extrabold tracking-tight text-white leading-[1.04]">
+              <div className="flex flex-wrap items-center gap-2 mb-2">
+                <p className="text-[11px] md:text-sm font-medium tracking-widest uppercase text-sky-400">
+                  Sosiologi Kelas XII SMA · Petualangan Edukasi 3D
+                </p>
+                <span
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold border ${
+                    isOnline
+                      ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                      : 'bg-amber-500/15 border-amber-500/40 text-amber-200'
+                  }`}
+                >
+                  {isOnline ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
+                  {isOnline ? 'Online' : 'Mode Offline · Solo Aktif'}
+                </span>
+              </div>
+              <h1 className="font-display text-3xl sm:text-5xl md:text-6xl font-extrabold tracking-tight text-white leading-[1.04]">
                 GLOBALUS
               </h1>
-              <p className="font-display text-lg sm:text-xl md:text-2xl font-semibold text-sky-300 tracking-wide mt-1">
+              <p className="font-display text-base sm:text-xl md:text-2xl font-semibold text-sky-300 tracking-wide mt-1">
                 MISSION OF GLOBALIZATION
               </p>
-              <p className="text-sm text-slate-300 mt-3 leading-relaxed max-w-lg">
+              <p className="text-xs sm:text-sm text-slate-300 mt-2.5 leading-relaxed max-w-lg">
                 Jelajahi GLOBALUS Space Station dalam petualangan cerita 5 chapter bersama REX, BIMA, FUZZY, BOB, dan RATU LARAS atau Mode Multiplayer Online!
               </p>
             </div>
 
             {hasProgress && (
-              <div className="flex flex-wrap items-center gap-3 text-xs text-slate-300 bg-[#0b132b]/85 border border-sky-500/30 rounded-xl px-4 py-2 w-fit">
+              <div className="flex flex-wrap items-center gap-2.5 text-xs text-slate-300 bg-[#0b132b]/85 border border-sky-500/30 rounded-xl px-3.5 py-2 w-fit">
                 <span className="text-sky-300 font-semibold">Kru: {saveState.character.name}</span>
                 <span>·</span>
                 <span>Chapter {saveState.unlockedChapter}/5</span>
@@ -150,38 +164,39 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               </div>
             )}
 
-            <nav className="flex flex-col gap-2.5 max-w-sm">
+            <nav className="flex flex-col gap-2 max-w-sm">
               <button
                 onMouseEnter={btnHover}
                 onClick={() => {
                   btnClick();
                   onPlayGame();
                 }}
-                className="group flex items-center justify-between px-5 py-3.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-display font-bold text-base tracking-wide transition-all shadow-lg shadow-sky-500/25 cursor-pointer"
+                className="group min-h-[46px] flex items-center justify-between px-5 py-3 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-display font-bold text-sm sm:text-base tracking-wide transition-all shadow-lg shadow-sky-500/25 cursor-pointer"
               >
                 <span className="flex items-center gap-3">
                   <Play className="w-5 h-5 fill-current" />
                   {hasProgress ? 'LANJUTKAN CERITA SOLO' : 'PLAY SOLO STORY'}
                 </span>
-                <span className="text-xs font-sans font-semibold px-2 py-0.5 rounded bg-slate-950/15 whitespace-nowrap">
-                  5 Chapter
+                <span className="text-[11px] font-sans font-semibold px-2 py-0.5 rounded bg-slate-950/15 whitespace-nowrap">
+                  Offline Ready
                 </span>
               </button>
 
               <button
                 onMouseEnter={btnHover}
+                disabled={!isOnline}
                 onClick={() => {
                   btnClick();
                   onOpenMultiplayer();
                 }}
-                className="flex items-center justify-between px-5 py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-display font-bold text-sm tracking-wide transition-all shadow-lg shadow-emerald-500/20 cursor-pointer"
+                className="min-h-[46px] flex items-center justify-between px-5 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:bg-slate-800/90 disabled:border disabled:border-slate-700 disabled:text-slate-400 disabled:cursor-not-allowed text-slate-950 font-display font-bold text-sm tracking-wide transition-all shadow-lg shadow-emerald-500/20 cursor-pointer"
               >
                 <span className="flex items-center gap-3">
                   <Users className="w-5 h-5" />
                   MULTIPLAYER ONLINE
                 </span>
-                <span className="text-xs font-sans font-semibold px-2 py-0.5 rounded bg-slate-950/15">
-                  Room & Impostor
+                <span className="text-[11px] font-sans font-semibold px-2 py-0.5 rounded bg-slate-950/15">
+                  {isOnline ? 'Room & Impostor' : 'Butuh Internet'}
                 </span>
               </button>
 
@@ -257,28 +272,42 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       )}
 
       {view === 'howtoplay' && (
-        <div className="relative z-10 w-full h-full flex items-center justify-center p-4 md:p-8">
-          <div className="w-full max-w-4xl max-h-full flex flex-col bg-[#080f24]/95 border border-sky-500/35 rounded-2xl p-5 md:p-7 shadow-2xl overflow-hidden">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-4 mb-4">
+        <div className="relative z-10 w-full h-full flex items-center justify-center p-3 sm:p-4 md:p-8 safe-hud-inset">
+          <div className="w-full max-w-4xl max-h-full flex flex-col bg-[#080f24]/95 border border-sky-500/35 rounded-2xl p-4 sm:p-5 md:p-7 shadow-2xl overflow-hidden">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3.5 mb-4">
               <div>
-                <h2 className="font-display text-2xl font-bold text-white flex items-center gap-2.5">
-                  <Gamepad2 className="w-6 h-6 text-sky-400" />
+                <h2 className="font-display text-lg sm:text-2xl font-bold text-white flex items-center gap-2.5">
+                  <Gamepad2 className="w-5 h-5 sm:w-6 sm:h-6 text-sky-400" />
                   CARA BERMAIN (HOW TO PLAY)
                 </h2>
                 <p className="text-xs text-slate-400 mt-0.5">
                   Panduan interaktif menjelajahi GLOBALUS Space Station
                 </p>
               </div>
-              <button
-                onClick={() => {
-                  btnClick();
-                  onNavigate('home');
-                }}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium cursor-pointer"
-              >
-                <ArrowLeft className="w-4 h-4" />
-                Kembali
-              </button>
+              <div className="flex items-center gap-2">
+                {onOpenTutorial && (
+                  <button
+                    onClick={() => {
+                      btnClick();
+                      onOpenTutorial();
+                    }}
+                    className="min-h-[40px] flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 text-xs font-display font-bold cursor-pointer"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    Tutorial Interaktif
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    btnClick();
+                    onNavigate('home');
+                  }}
+                  className="min-h-[40px] flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs sm:text-sm font-medium cursor-pointer"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                  Kembali
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-12 gap-4 flex-1 overflow-y-auto sci-scroll pr-1">
@@ -543,7 +572,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                     </div>
                   </div>
                   <select
-                    value={saveState.settings.musicTrack || 'cosmic_drift'}
+                    value={normalizeMusicTrackId(saveState.settings.musicTrack)}
                     onChange={(e) => {
                       btnClick();
                       onUpdateSettings({
@@ -746,72 +775,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                     <li>• Westernisasi, Neokolonialisme & Cultural Lag</li>
                   </ul>
                 </div>
-              </div>
-
-              {/* Editable Creator Info */}
-              <div className="bg-slate-900/75 border border-slate-800 rounded-xl p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="font-semibold text-amber-300">Informasi Pembuat Game</p>
-                  <button
-                    onClick={() => {
-                      btnClick();
-                      if (editingCreator) {
-                        onUpdateCreator(creatorDraft);
-                        setEditingCreator(false);
-                      } else {
-                        setCreatorDraft(saveState.creatorInfo);
-                        setEditingCreator(true);
-                      }
-                    }}
-                    className="px-3 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-200 text-xs font-semibold cursor-pointer"
-                  >
-                    {editingCreator ? 'Simpan Info' : 'Edit Informasi'}
-                  </button>
-                </div>
-
-                {!editingCreator ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-300">
-                    <p><span className="text-slate-400">Nama Pembuat:</span> {saveState.creatorInfo.creatorName}</p>
-                    <p><span className="text-slate-400">Institusi / Sekolah:</span> {saveState.creatorInfo.schoolOrInstitution}</p>
-                    <p><span className="text-slate-400">Mata Pelajaran:</span> {saveState.creatorInfo.subjectInfo}</p>
-                    <p><span className="text-slate-400">Tahun:</span> {saveState.creatorInfo.year}</p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                    <label className="flex flex-col gap-1">
-                      <span className="text-slate-400">Nama Pembuat</span>
-                      <input
-                        value={creatorDraft.creatorName}
-                        onChange={(e) => setCreatorDraft({ ...creatorDraft, creatorName: e.target.value })}
-                        className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-white"
-                      />
-                    </label>
-                    <label className="flex flex-col gap-1">
-                      <span className="text-slate-400">Institusi / Sekolah</span>
-                      <input
-                        value={creatorDraft.schoolOrInstitution}
-                        onChange={(e) => setCreatorDraft({ ...creatorDraft, schoolOrInstitution: e.target.value })}
-                        className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-white"
-                      />
-                    </label>
-                    <label className="flex flex-col gap-1">
-                      <span className="text-slate-400">Mata Pelajaran</span>
-                      <input
-                        value={creatorDraft.subjectInfo}
-                        onChange={(e) => setCreatorDraft({ ...creatorDraft, subjectInfo: e.target.value })}
-                        className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-white"
-                      />
-                    </label>
-                    <label className="flex flex-col gap-1">
-                      <span className="text-slate-400">Tahun</span>
-                      <input
-                        value={creatorDraft.year}
-                        onChange={(e) => setCreatorDraft({ ...creatorDraft, year: e.target.value })}
-                        className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-white"
-                      />
-                    </label>
-                  </div>
-                )}
               </div>
             </div>
           </div>

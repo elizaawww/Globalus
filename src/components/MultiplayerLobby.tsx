@@ -9,6 +9,7 @@ import {
   MicOff,
   Play,
   Plus,
+  RefreshCw,
   ShieldAlert,
   Sparkles,
   UserCheck,
@@ -27,6 +28,9 @@ import { SpaceBackdrop3D } from './SpaceBackdrop3D';
 interface MultiplayerLobbyProps {
   character: CharacterConfig;
   status: ConnectionStatus;
+  isOnline: boolean;
+  reconnectAttempt: number;
+  maxReconnectAttempts: number;
   playerId: string | null;
   roomCode: string | null;
   snapshot: RoomSnapshot | null;
@@ -39,6 +43,8 @@ interface MultiplayerLobbyProps {
   onToggleReady: () => void;
   onStartGame: () => void;
   onOpenCustomize: () => void;
+  onRetryConnect: () => void;
+  onBackToSolo: () => void;
   onBackHome: () => void;
   onClearError: () => void;
 }
@@ -46,6 +52,9 @@ interface MultiplayerLobbyProps {
 export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
   character,
   status,
+  isOnline,
+  reconnectAttempt,
+  maxReconnectAttempts,
   playerId,
   roomCode,
   snapshot,
@@ -58,6 +67,8 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
   onToggleReady,
   onStartGame,
   onOpenCustomize,
+  onRetryConnect,
+  onBackToSolo,
   onBackHome,
   onClearError,
 }) => {
@@ -68,7 +79,10 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
   const me = players.find((p) => p.id === playerId);
   const isHost = Boolean(me?.isHost);
   const allNonHostReady = players.filter((p) => !p.isHost).every((p) => p.ready);
-  const canStart = isHost && players.length >= 2 && allNonHostReady;
+  const canStart = isHost && players.length >= 2 && allNonHostReady && status === 'connected';
+  const networkUnavailable = !isOnline || status === 'offline';
+  const connectionFailed = status === 'failed';
+  const actionsDisabled = networkUnavailable || connectionFailed;
 
   const handleCopyCode = () => {
     if (!roomCode) return;
@@ -79,6 +93,14 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
   };
 
   const statusBadge = () => {
+    if (networkUnavailable) {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-500/15 border border-rose-500/40 text-rose-300 text-xs font-semibold">
+          <WifiOff className="w-3.5 h-3.5" />
+          Mode Offline
+        </span>
+      );
+    }
     if (status === 'connected') {
       return (
         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 text-xs font-semibold">
@@ -91,7 +113,17 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
       return (
         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/40 text-amber-300 text-xs font-semibold">
           <Wifi className="w-3.5 h-3.5" />
-          {status === 'reconnecting' ? 'Menyambung Ulang...' : 'Menghubungkan...'}
+          {status === 'reconnecting'
+            ? `Menyambung Ulang (${reconnectAttempt}/${maxReconnectAttempts})...`
+            : 'Menghubungkan...'}
+        </span>
+      );
+    }
+    if (status === 'failed') {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-500/15 border border-rose-500/40 text-rose-300 text-xs font-semibold">
+          <WifiOff className="w-3.5 h-3.5" />
+          Koneksi Gagal
         </span>
       );
     }
@@ -108,14 +140,14 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
       <SpaceBackdrop3D />
       <div className="fixed inset-0 z-[1] bg-[#040714]/82 pointer-events-none" />
 
-      <div className="relative z-10 w-full h-full flex flex-col p-4 md:p-7 max-w-6xl mx-auto">
+      <div className="relative z-10 w-full h-full flex flex-col p-3 sm:p-4 md:p-7 max-w-6xl mx-auto overflow-y-auto sci-scroll safe-hud-inset">
         {/* Top Bar */}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-4 mb-5 shrink-0">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3.5 mb-4 shrink-0">
           <div>
-            <p className="text-xs font-bold uppercase tracking-widest text-sky-400">
+            <p className="text-[11px] font-bold uppercase tracking-widest text-sky-400">
               Mode Online Real-Time · Social Deduction Sosiologi
             </p>
-            <h1 className="font-display text-2xl md:text-3xl font-extrabold text-white">
+            <h1 className="font-display text-xl sm:text-2xl md:text-3xl font-extrabold text-white">
               MULTIPLAYER LOBBY GLOBALUS
             </h1>
           </div>
@@ -128,7 +160,7 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                 if (roomCode) onLeaveRoom();
                 onBackHome();
               }}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold cursor-pointer"
+              className="min-h-[42px] flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold cursor-pointer"
             >
               <ArrowLeft className="w-4 h-4" />
               MENU UTAMA
@@ -136,12 +168,54 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
           </div>
         </div>
 
-        {lastError && (
-          <div className="mb-4 bg-rose-500/15 border border-rose-500/50 text-rose-200 px-4 py-2.5 rounded-xl text-xs md:text-sm flex items-center justify-between">
+        {(networkUnavailable || connectionFailed) && (
+          <div className="mb-4 bg-rose-950/75 border border-rose-500/50 text-rose-100 px-4 py-3 rounded-xl text-xs sm:text-sm flex flex-wrap items-center justify-between gap-3 shrink-0">
+            <div className="flex items-start gap-2.5 min-w-0">
+              <WifiOff className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold text-white">
+                  {networkUnavailable
+                    ? 'Kamu Sedang Dalam Mode Offline'
+                    : 'Gagal Terhubung ke Server Multiplayer'}
+                </p>
+                <p className="text-xs text-rose-200 mt-0.5">
+                  {networkUnavailable
+                    ? 'Multiplayer online dan voice chat membutuhkan koneksi internet. Kamu tetap bisa bermain Mode Solo secara penuh tanpa kuota.'
+                    : lastError || 'Server tidak merespons atau koneksi terputus. Coba hubungkan ulang atau kembali ke Mode Solo.'}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => {
+                  soundEngine.playClick();
+                  onRetryConnect();
+                }}
+                disabled={!isOnline}
+                className="min-h-[40px] flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 disabled:bg-slate-800 disabled:text-slate-500 text-slate-950 font-display font-bold text-xs cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                Coba Lagi
+              </button>
+              <button
+                onClick={() => {
+                  soundEngine.playClick();
+                  onBackToSolo();
+                }}
+                className="min-h-[40px] px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-display font-bold text-xs cursor-pointer"
+              >
+                Keluar ke Mode Solo
+              </button>
+            </div>
+          </div>
+        )}
+
+        {lastError && !networkUnavailable && !connectionFailed && (
+          <div className="mb-4 bg-rose-500/15 border border-rose-500/50 text-rose-200 px-4 py-2.5 rounded-xl text-xs md:text-sm flex items-center justify-between gap-2 shrink-0">
             <span>{lastError}</span>
             <button
               onClick={onClearError}
-              className="px-2.5 py-1 rounded bg-rose-500/20 hover:bg-rose-500/30 text-xs font-bold cursor-pointer"
+              className="px-2.5 py-1 rounded bg-rose-500/20 hover:bg-rose-500/30 text-xs font-bold cursor-pointer shrink-0"
             >
               Tutup
             </button>
@@ -150,7 +224,7 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
 
         {!roomCode ? (
           /* CREATE OR JOIN VIEW */
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-5 flex-1 min-h-0 items-center">
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-4 sm:gap-5 flex-1 min-h-0 items-start md:items-center">
             <div className="md:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-4">
               {/* Create Room Card */}
               <div className="bg-[#091229]/95 border border-sky-500/40 rounded-2xl p-5 flex flex-col justify-between gap-4 shadow-xl">
@@ -164,13 +238,14 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                   </p>
                 </div>
                 <button
+                  disabled={actionsDisabled}
                   onClick={() => {
                     soundEngine.playClick();
                     onCreateRoom();
                   }}
-                  className="w-full py-3 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-display font-bold text-sm cursor-pointer shadow-lg shadow-sky-500/25"
+                  className="w-full min-h-[44px] py-3 rounded-xl bg-sky-500 hover:bg-sky-400 disabled:bg-slate-800 disabled:text-slate-500 text-slate-950 font-display font-bold text-sm cursor-pointer shadow-lg shadow-sky-500/25"
                 >
-                  CREATE ROOM
+                  {networkUnavailable ? 'BUTUH INTERNET' : 'CREATE ROOM'}
                 </button>
               </div>
 
@@ -189,20 +264,21 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                   <input
                     type="text"
                     maxLength={6}
+                    disabled={actionsDisabled}
                     value={joinInput}
                     onChange={(e) => setJoinInput(e.target.value.toUpperCase())}
                     placeholder="KODE ROOM (CONTOH: AB12CD)"
-                    className="w-full bg-slate-950 border border-slate-700 focus:border-emerald-400 outline-none rounded-xl px-3.5 py-2.5 text-sm font-mono-num font-bold tracking-widest text-white uppercase text-center"
+                    className="w-full bg-slate-950 border border-slate-700 focus:border-emerald-400 disabled:opacity-50 outline-none rounded-xl px-3.5 py-2.5 text-sm font-mono-num font-bold tracking-widest text-white uppercase text-center"
                   />
                   <button
-                    disabled={joinInput.trim().length < 4}
+                    disabled={actionsDisabled || joinInput.trim().length < 4}
                     onClick={() => {
                       soundEngine.playClick();
                       onJoinRoom(joinInput);
                     }}
-                    className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:bg-slate-800 disabled:text-slate-500 text-slate-950 font-display font-bold text-sm cursor-pointer"
+                    className="w-full min-h-[44px] py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:bg-slate-800 disabled:text-slate-500 text-slate-950 font-display font-bold text-sm cursor-pointer"
                   >
-                    JOIN ROOM
+                    {networkUnavailable ? 'BUTUH INTERNET' : 'JOIN ROOM'}
                   </button>
                 </div>
               </div>
@@ -220,7 +296,7 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                     soundEngine.playClick();
                     onOpenCustomize();
                   }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-300 text-xs font-semibold cursor-pointer"
+                  className="min-h-[38px] flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-300 text-xs font-semibold cursor-pointer"
                 >
                   <UserCheck className="w-3.5 h-3.5" />
                   Ubah Tampilan

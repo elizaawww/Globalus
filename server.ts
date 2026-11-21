@@ -467,11 +467,44 @@ async function startServer() {
     });
   }
 
-  wss.on('connection', (ws) => {
+  interface AliveWebSocket extends WebSocket {
+    isAlive?: boolean;
+  }
+
+  const hbInterval = setInterval(() => {
+    wss.clients.forEach((client) => {
+      const sock = client as AliveWebSocket;
+      if (sock.isAlive === false) {
+        sock.terminate();
+        return;
+      }
+      sock.isAlive = false;
+      try {
+        sock.ping();
+      } catch {
+        // ignore ping failure
+      }
+    });
+  }, 25000);
+
+  wss.on('close', () => {
+    clearInterval(hbInterval);
+  });
+
+  wss.on('connection', (rawWs) => {
+    const ws = rawWs as AliveWebSocket;
+    ws.isAlive = true;
+    ws.on('pong', () => {
+      ws.isAlive = true;
+    });
+    ws.on('error', () => {
+      // prevent unhandled socket error crash
+    });
     let boundRoomCode: string | null = null;
     let boundPlayerId: string | null = null;
 
     ws.on('message', (raw) => {
+      ws.isAlive = true;
       let msg: Record<string, unknown>;
       try {
         msg = JSON.parse(raw.toString()) as Record<string, unknown>;
@@ -554,15 +587,22 @@ async function startServer() {
 
       if (type === 'join_room') {
         const roomCode = String(msg.roomCode || '').trim().toUpperCase();
+        const reqPid = typeof msg.playerId === 'string' ? msg.playerId : '';
+        const reqToken = typeof msg.reconnectToken === 'string' ? msg.reconnectToken : '';
         const room = rooms.get(roomCode);
         if (!room) {
-          sendJson(ws, { type: 'error', message: `Room "${roomCode}" tidak ditemukan.` });
+          if (reqPid && reqToken) {
+            sendJson(ws, {
+              type: 'session_expired',
+              message: `Sesi room "${roomCode}" sudah berakhir atau tidak tersedia.`,
+            });
+          } else {
+            sendJson(ws, { type: 'error', message: `Room "${roomCode}" tidak ditemukan.` });
+          }
           return;
         }
 
         // Check reconnect token first
-        const reqPid = typeof msg.playerId === 'string' ? msg.playerId : '';
-        const reqToken = typeof msg.reconnectToken === 'string' ? msg.reconnectToken : '';
         if (reqPid && reqToken) {
           const existing = room.players.get(reqPid);
           if (existing && existing.reconnectToken === reqToken) {
@@ -585,6 +625,11 @@ async function startServer() {
             broadcastRoomState(room);
             return;
           }
+          sendJson(ws, {
+            type: 'session_expired',
+            message: 'Sesi pemain sebelumnya sudah kadaluarsa. Silakan gabung ulang.',
+          });
+          return;
         }
 
         if (room.phase !== 'lobby') {

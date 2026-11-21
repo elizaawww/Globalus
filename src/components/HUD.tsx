@@ -12,6 +12,7 @@ import {
   Crosshair,
   Hand,
   Headphones,
+  HelpCircle,
   Home,
   Lock,
   LockOpen,
@@ -22,12 +23,14 @@ import {
   Package,
   Pause,
   Play,
+  RefreshCw,
   RotateCcw,
   Settings,
   ShieldAlert,
   SkipBack,
   SkipForward,
   Smile,
+  Square,
   Users,
   Volume2,
   VolumeX,
@@ -39,7 +42,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
-import { MUSIC_TRACKS, soundEngine } from '../audio/soundEngine';
+import { MUSIC_TRACKS, normalizeMusicTrackId, soundEngine } from '../audio/soundEngine';
 import { CHAPTER_INFO, EMOTES, IMPOSTOR_CHALLENGES, MISSION_META, PLAYER_COLORS } from '../data/gameData';
 import { ROOMS, VENTS, WALKABLE_RECTS } from '../data/stationLayout';
 import {
@@ -90,8 +93,12 @@ interface HUDProps {
   activeEmote?: EmoteId | null;
   // Multiplayer Props
   isMultiplayer?: boolean;
+  isOnline?: boolean;
   myPlayerId?: string | null;
   mpStatus?: ConnectionStatus;
+  reconnectAttempt?: number;
+  maxReconnectAttempts?: number;
+  mpLastError?: string | null;
   mpRole?: MultiplayerRole | null;
   amAlive?: boolean;
   mpSnapshot?: RoomSnapshot | null;
@@ -100,6 +107,7 @@ interface HUDProps {
   voiceControls?: HudVoiceControls;
   onTogglePause: () => void;
   onOpenInventory: () => void;
+  onOpenTutorial?: () => void;
   onResetCamera: () => void;
   onJump: () => void;
   onTriggerEmote: (emoteId: EmoteId) => void;
@@ -108,6 +116,8 @@ interface HUDProps {
   onInteractVent: (ventId: string) => void;
   onCallMeeting?: (reason: 'emergency' | 'report', podId?: string) => void;
   onEliminateTarget?: (targetId: string) => void;
+  onRetryConnect?: () => void;
+  onExitToSolo?: () => void;
   onUpdateSettings: (next: GameSettings) => void;
   onOpenFinalQuiz: () => void;
   onBackHome: () => void;
@@ -132,8 +142,12 @@ export const HUD: React.FC<HUDProps> = ({
   activeTheoryBookId = null,
   activeEmote = null,
   isMultiplayer = false,
+  isOnline = true,
   myPlayerId = null,
   mpStatus = 'disconnected',
+  reconnectAttempt = 0,
+  maxReconnectAttempts = 3,
+  mpLastError = null,
   mpRole = null,
   amAlive = true,
   mpSnapshot = null,
@@ -142,6 +156,7 @@ export const HUD: React.FC<HUDProps> = ({
   voiceControls,
   onTogglePause,
   onOpenInventory,
+  onOpenTutorial,
   onResetCamera,
   onJump,
   onTriggerEmote,
@@ -150,6 +165,8 @@ export const HUD: React.FC<HUDProps> = ({
   onInteractVent,
   onCallMeeting,
   onEliminateTarget,
+  onRetryConnect,
+  onExitToSolo,
   onUpdateSettings,
   onOpenFinalQuiz,
   onBackHome,
@@ -284,7 +301,7 @@ export const HUD: React.FC<HUDProps> = ({
   const fullCenter = fullMapMode === 'follow' ? smoothCenter : freeMapCenter;
   const fullMapViewBox = `${(fullCenter.x - fullSpan / 2).toFixed(2)} ${(fullCenter.z - fullSpan / 2).toFixed(2)} ${fullSpan.toFixed(2)} ${fullSpan.toFixed(2)}`;
 
-  const activeTrackId: MusicTrackId = saveState.settings.musicTrack || 'cosmic_drift';
+  const activeTrackId: MusicTrackId = normalizeMusicTrackId(saveState.settings.musicTrack);
   const activeTrackDef = MUSIC_TRACKS.find((t) => t.id === activeTrackId) || MUSIC_TRACKS[0];
   const cycleTrack = (dir: -1 | 1) => {
     const idx = MUSIC_TRACKS.findIndex((t) => t.id === activeTrackId);
@@ -314,25 +331,75 @@ export const HUD: React.FC<HUDProps> = ({
     );
   }, [isMultiplayer, mpSnapshot, myPlayerId, amAlive]);
 
+  const mpConnectionLost = isMultiplayer && (mpStatus === 'failed' || mpStatus === 'offline' || !isOnline);
+  const mpReconnecting = isMultiplayer && !mpConnectionLost && (mpStatus === 'reconnecting' || mpStatus === 'connecting');
+
   return (
-    <div className="fixed inset-0 z-20 pointer-events-none flex flex-col justify-between p-2.5 md:p-4">
+    <div className="fixed inset-0 z-20 pointer-events-none flex flex-col justify-between p-2 sm:p-3 md:p-4 safe-hud-inset">
       {/* Spectator Banner */}
       {isMultiplayer && !amAlive && (
-        <div className="fixed top-2 left-1/2 -translate-x-1/2 z-30 bg-rose-950/90 border border-rose-500/60 text-rose-200 px-4 py-1.5 rounded-xl text-xs font-bold shadow-lg">
-          MODE PENONTON (STASIS) — Tetap bantu selesaikan misi atau saksikan jalannya permainan
+        <div className="fixed top-2 left-1/2 -translate-x-1/2 z-30 bg-rose-950/90 border border-rose-500/60 text-rose-200 px-3 sm:px-4 py-1 rounded-xl text-[11px] sm:text-xs font-bold shadow-lg max-w-[90vw] truncate">
+          MODE PENONTON (STASIS) — Bantu selesaikan misi atau saksikan permainan
+        </div>
+      )}
+
+      {/* Multiplayer Connection Recovery Banner (Never stuck in infinite reconnect loop) */}
+      {(mpConnectionLost || mpReconnecting) && (
+        <div className="fixed top-12 sm:top-14 left-1/2 -translate-x-1/2 z-40 pointer-events-auto w-[min(92vw,420px)] bg-[#070d20]/95 border border-rose-500/55 rounded-xl px-3.5 py-2.5 shadow-2xl flex flex-wrap items-center justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-xs font-bold text-white flex items-center gap-1.5">
+              <WifiOff className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+              {mpStatus === 'offline' || !isOnline
+                ? 'Koneksi Internet Terputus'
+                : mpReconnecting
+                  ? `Menghubungkan ulang (${reconnectAttempt}/${maxReconnectAttempts})...`
+                  : 'Koneksi Multiplayer Terputus'}
+            </p>
+            {mpConnectionLost && (
+              <p className="text-[11px] text-slate-300 mt-0.5 leading-snug">
+                {mpLastError || 'Coba hubungkan ulang atau beralih ke Mode Solo.'}
+              </p>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {mpConnectionLost && onRetryConnect && (
+              <button
+                onClick={() => {
+                  soundEngine.playClick();
+                  onRetryConnect();
+                }}
+                disabled={!isOnline}
+                className="min-h-[36px] px-2.5 py-1 rounded-lg bg-sky-500 hover:bg-sky-400 disabled:bg-slate-800 disabled:text-slate-500 text-slate-950 font-bold text-[11px] flex items-center gap-1 cursor-pointer"
+              >
+                <RefreshCw className="w-3 h-3" />
+                Coba Lagi
+              </button>
+            )}
+            {onExitToSolo && (
+              <button
+                onClick={() => {
+                  soundEngine.playClick();
+                  onExitToSolo();
+                }}
+                className="min-h-[36px] px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-[11px] cursor-pointer"
+              >
+                Keluar ke Mode Solo
+              </button>
+            )}
+          </div>
         </div>
       )}
 
       {/* TOP BAR ROW */}
       <div className="flex items-start justify-between gap-2">
-        {/* TOP-LEFT: Objective Tracker */}
-        <div className="pointer-events-auto max-w-[270px] md:max-w-[310px] bg-[#070d20]/90 border border-sky-500/35 rounded-xl overflow-hidden shadow-lg">
+        {/* TOP-LEFT: Simplified Objective Checklist */}
+        <div className="pointer-events-auto max-w-[235px] sm:max-w-[280px] md:max-w-[310px] bg-[#070d20]/92 border border-sky-500/35 rounded-xl overflow-hidden shadow-lg">
           <button
             onClick={() => {
               soundEngine.playClick();
               setTrackerOpen((o) => !o);
             }}
-            className="w-full px-3.5 py-2 flex items-center justify-between gap-2 text-left bg-slate-900/70 hover:bg-slate-800/70 cursor-pointer"
+            className="w-full min-h-[40px] px-3 py-1.5 flex items-center justify-between gap-2 text-left bg-slate-900/75 hover:bg-slate-800/75 cursor-pointer"
           >
             <div className="min-w-0">
               {isMultiplayer ? (
@@ -342,20 +409,20 @@ export const HUD: React.FC<HUDProps> = ({
                       mpRole === 'impostor' ? 'text-rose-400' : 'text-sky-400'
                     }`}
                   >
-                    {mpRole === 'impostor' ? 'PERAN RAHASIA: IMPOSTOR' : 'PERAN: CREWMATE'} · ROOM {mpSnapshot?.roomCode}
+                    {mpRole === 'impostor' ? 'IMPOSTOR' : 'CREWMATE'} · {mpSnapshot?.roomCode}
                   </p>
-                  <p className="text-xs font-semibold text-white truncate">
+                  <p className="text-[11px] sm:text-xs font-semibold text-white truncate">
                     {mpRole === 'impostor'
-                      ? `Sabotase Sosiologi (${mpSnapshot?.impostorObjectiveDone || 0}/${mpSnapshot?.impostorObjectiveTotal || 4})`
+                      ? `Sabotase (${mpSnapshot?.impostorObjectiveDone || 0}/${mpSnapshot?.impostorObjectiveTotal || 4})`
                       : `Misi Kru (${mpSnapshot?.crewMissionDone || 0}/${mpSnapshot?.crewMissionTotal || 6})`}
                   </p>
                 </>
               ) : (
                 <>
                   <p className="text-[10px] font-bold uppercase tracking-wider text-sky-400 truncate">
-                    {allChaptersDone ? 'EVALUASI AKHIR' : `CHAPTER ${saveState.unlockedChapter}`} · {saveState.character.name}
+                    {allChaptersDone ? 'EVALUASI AKHIR' : `CHAPTER ${saveState.unlockedChapter}/5`}
                   </p>
-                  <p className="text-xs font-semibold text-white truncate">
+                  <p className="text-[11px] sm:text-xs font-semibold text-white truncate">
                     {allChaptersDone ? 'Earth Observation Room' : chapterData.title}
                   </p>
                 </>
@@ -369,7 +436,7 @@ export const HUD: React.FC<HUDProps> = ({
           </button>
 
           {trackerOpen && (
-            <div className="px-3.5 py-2.5 space-y-2 border-t border-slate-800/80">
+            <div className="px-3 py-2 space-y-2 border-t border-slate-800/80 max-h-[38dvh] overflow-y-auto sci-scroll">
               {isMultiplayer ? (
                 mpRole === 'impostor' ? (
                   <>
@@ -390,13 +457,10 @@ export const HUD: React.FC<HUDProps> = ({
                         );
                       })}
                     </div>
-                    <p className="text-[10px] text-rose-300 border-t border-slate-800 pt-1.5">
-                      Gunakan Vent [E], selesaikan tantangan rahasia, atau stasis Crewmate.
-                    </p>
                   </>
                 ) : (
                   <>
-                    <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                    <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
                       <div
                         className="h-full bg-emerald-400 transition-all"
                         style={{
@@ -407,82 +471,65 @@ export const HUD: React.FC<HUDProps> = ({
                         }}
                       />
                     </div>
-                    <p className="text-[11px] text-slate-300">
-                      Jelajahi ruangan misi di stasiun untuk memulihkan Global Network dan waspadai Impostor!
-                    </p>
                     <p className="text-[11px] font-mono-num text-emerald-300">
-                      Misi Kamu Selesai: {mpDoneSet.size} · Kru Hidup: {mpSnapshot?.players.filter((p) => p.alive).length || 0}
+                      Misi Kamu: {mpDoneSet.size} · Kru Hidup: {mpSnapshot?.players.filter((p) => p.alive).length || 0}
                     </p>
                   </>
                 )
               ) : !allChaptersDone ? (
                 <>
-                  {chapterData.missions.map((mId) => {
-                    const meta = MISSION_META[mId];
-                    const status = getRoomStatus(meta.roomId);
-                    const bookProg = getMissionBookProgress(mId, readBooksArr);
-                    const done = status === 'completed' || status === 'completed_locked';
-                    const activeNow = status === 'in_progress';
-                    const isReading = status === 'reading';
-                    const isReadyQuiz = status === 'ready_quiz';
-                    return (
-                      <div key={mId} className="flex items-start gap-2 text-[11px]">
-                        {done ? (
-                          <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-400" />
-                        ) : activeNow ? (
-                          <span className="w-4 h-4 shrink-0 mt-0.5 rounded-full bg-sky-400 animate-pulse inline-block" />
-                        ) : isReading ? (
-                          <BookOpen className="w-4 h-4 shrink-0 mt-0.5 text-sky-400 animate-pulse" />
-                        ) : isReadyQuiz ? (
-                          <span className="relative shrink-0 mt-0.5 inline-flex items-center justify-center w-4 h-4 text-teal-300">
-                            <BookCheck className="w-4 h-4" />
-                          </span>
-                        ) : (
-                          <span className="relative shrink-0 mt-0.5 inline-flex items-center justify-center w-4 h-4 text-amber-300">
-                            <BookOpen className="w-4 h-4" />
-                            <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-400 text-slate-950 font-black text-[8px] flex items-center justify-center">
-                              !
+                  <div className="space-y-1.5">
+                    {chapterData.missions.map((mId) => {
+                      const meta = MISSION_META[mId];
+                      const roomName = ROOMS[meta.roomId].name;
+                      const status = getRoomStatus(meta.roomId);
+                      const bookProg = getMissionBookProgress(mId, readBooksArr);
+                      const done = status === 'completed' || status === 'completed_locked';
+
+                      if (done) {
+                        return (
+                          <div key={mId} className="flex items-center gap-1.5 text-[11px] text-slate-400">
+                            <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
+                            <span className="line-through truncate">{roomName} (Selesai)</span>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div key={mId} className="space-y-1">
+                          <div className="flex items-start gap-1.5 text-[11px]">
+                            {bookProg.allRead ? (
+                              <CheckCircle2 className="w-3.5 h-3.5 shrink-0 mt-0.5 text-emerald-400" />
+                            ) : (
+                              <Square className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-400" />
+                            )}
+                            <span
+                              className={
+                                bookProg.allRead
+                                  ? 'line-through text-slate-400'
+                                  : 'text-amber-100 font-medium'
+                              }
+                            >
+                              Membaca materi di {roomName} ({bookProg.readCount}/{bookProg.totalCount})
                             </span>
-                          </span>
-                        )}
-                        <div className="min-w-0 flex-1">
-                          <span
-                            className={
-                              done
-                                ? 'line-through text-slate-400'
-                                : activeNow || isReading
-                                  ? 'text-sky-300 font-semibold'
-                                  : isReadyQuiz
-                                    ? 'text-teal-200 font-semibold'
-                                    : 'text-amber-100'
-                            }
-                          >
-                            {meta.title} ({ROOMS[meta.roomId].shortName})
-                          </span>
-                          {!done && (
-                            <p className="text-[10px] leading-tight mt-0.5">
-                              {activeNow ? (
-                                <span className="text-sky-300">Sedang Mengerjakan Kuis</span>
-                              ) : isReading ? (
-                                <span className="text-sky-300">Sedang Membaca Buku Teori</span>
-                              ) : isReadyQuiz ? (
-                                <span className="text-teal-300">
-                                  Siap Kuis ({bookProg.readCount}/{bookProg.totalCount} Buku ✓) — Akses Terminal
-                                </span>
-                              ) : (
-                                <span className="text-amber-300">
-                                  Belum Dibaca ({bookProg.readCount}/{bookProg.totalCount} Buku !)
-                                </span>
-                              )}
-                            </p>
-                          )}
+                          </div>
+                          <div className="flex items-start gap-1.5 text-[11px]">
+                            <Square
+                              className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${
+                                bookProg.allRead ? 'text-teal-400' : 'text-slate-500'
+                              }`}
+                            />
+                            <span className={bookProg.allRead ? 'text-teal-200 font-medium' : 'text-slate-400'}>
+                              Selesaikan kuis di {roomName} (0/1)
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                  <div className="pt-1 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400 font-mono-num">
-                    <span>Misi: {saveState.completedMissions.length}/10</span>
-                    <span>Buku: {readBookSet.size}/{THEORY_BOOKS.length}</span>
+                      );
+                    })}
+                  </div>
+                  <div className="pt-1 border-t border-slate-800/80 flex items-center justify-between text-[10px] text-slate-400 font-mono-num">
+                    <span>Misi {saveState.completedMissions.length}/10</span>
+                    <span>Buku {readBookSet.size}/{THEORY_BOOKS.length}</span>
                     <span className="text-amber-300">{saveState.totalExp} EXP</span>
                   </div>
                 </>
@@ -493,14 +540,14 @@ export const HUD: React.FC<HUDProps> = ({
                       soundEngine.playClick();
                       onOpenFinalQuiz();
                     }}
-                    className="w-full py-2 px-3 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-display font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
+                    className="w-full min-h-[40px] py-2 px-3 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-display font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
                   >
                     <Award className="w-4 h-4" />
                     MULAI FINAL QUIZ (12 SOAL)
                   </button>
-                  <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono-num">
+                  <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono-num">
                     <span>5/5 Chapter</span>
-                    <span>Buku: {readBookSet.size}/{THEORY_BOOKS.length}</span>
+                    <span>Buku {readBookSet.size}/{THEORY_BOOKS.length}</span>
                     <span className="text-amber-300">{saveState.totalExp} EXP</span>
                   </div>
                 </div>
@@ -510,7 +557,7 @@ export const HUD: React.FC<HUDProps> = ({
         </div>
 
         {/* TOP-CENTER: Compass, Current Room & MP Connection */}
-        <div className="hidden sm:flex flex-col items-center bg-[#070d20]/90 border border-slate-700/80 rounded-xl px-4 py-1.5 shadow-lg">
+        <div className="hidden md:flex flex-col items-center bg-[#070d20]/92 border border-slate-700/80 rounded-xl px-4 py-1.5 shadow-lg">
           <div className="flex items-center gap-2 text-xs text-sky-300 font-semibold">
             <Compass className="w-3.5 h-3.5" />
             <span>{compass.label}</span>
@@ -518,11 +565,21 @@ export const HUD: React.FC<HUDProps> = ({
             {isMultiplayer && (
               <span
                 className={`ml-1 inline-flex items-center gap-1 text-[11px] ${
-                  mpStatus === 'connected' ? 'text-emerald-400' : 'text-amber-300'
+                  mpStatus === 'connected'
+                    ? 'text-emerald-400'
+                    : mpConnectionLost
+                      ? 'text-rose-400'
+                      : 'text-amber-300'
                 }`}
               >
                 {mpStatus === 'connected' ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-                {mpStatus === 'connected' ? 'Live' : 'Sync...'}
+                {mpStatus === 'connected'
+                  ? 'Live'
+                  : mpStatus === 'offline' || !isOnline
+                    ? 'Offline'
+                    : mpStatus === 'failed'
+                      ? 'Terputus'
+                      : `Sync ${reconnectAttempt}/${maxReconnectAttempts}`}
               </span>
             )}
           </div>
@@ -532,8 +589,8 @@ export const HUD: React.FC<HUDProps> = ({
         </div>
 
         {/* TOP-RIGHT: Voice Chat + Music + Map + Minimap + Action Controls */}
-        <div className="pointer-events-auto relative flex flex-col items-end gap-2">
-          <div className="flex flex-wrap items-center justify-end gap-1.5">
+        <div className="pointer-events-auto relative flex flex-col items-end gap-1.5 sm:gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-1 sm:gap-1.5 max-w-[54vw] sm:max-w-none">
             {isMultiplayer && voiceControls && (
               <>
                 <button
@@ -541,16 +598,18 @@ export const HUD: React.FC<HUDProps> = ({
                     soundEngine.playClick();
                     voiceControls.onToggleMic();
                   }}
-                  disabled={saveState.settings.voiceEnabled === false}
+                  disabled={!isOnline || saveState.settings.voiceEnabled === false}
                   title={
-                    saveState.settings.voiceEnabled === false
-                      ? 'Voice Chat dinonaktifkan'
-                      : voiceControls.micOn
-                        ? 'Matikan Mikrofon'
-                        : 'Aktifkan On Mic'
+                    !isOnline
+                      ? 'Offline — Voice Chat membutuhkan koneksi internet'
+                      : saveState.settings.voiceEnabled === false
+                        ? 'Voice Chat dinonaktifkan'
+                        : voiceControls.micOn
+                          ? 'Matikan Mikrofon'
+                          : 'Aktifkan On Mic'
                   }
-                  className={`px-2.5 py-2 rounded-xl border text-[11px] font-bold flex items-center gap-1.5 cursor-pointer transition-colors ${
-                    saveState.settings.voiceEnabled === false
+                  className={`touch-control px-2.5 py-2 rounded-xl border text-[11px] font-bold flex items-center gap-1.5 cursor-pointer transition-colors ${
+                    !isOnline || saveState.settings.voiceEnabled === false
                       ? 'bg-slate-900/80 border-slate-700 text-slate-500 cursor-not-allowed'
                       : voiceControls.micOn
                         ? voiceControls.muted
@@ -561,19 +620,21 @@ export const HUD: React.FC<HUDProps> = ({
                         : 'bg-[#070d20]/90 hover:bg-slate-800 border-slate-700 text-slate-200'
                   }`}
                 >
-                  {voiceControls.micOn && !voiceControls.muted ? (
-                    <Mic className={`w-3.5 h-3.5 ${voiceControls.speaking ? 'animate-pulse' : ''}`} />
+                  {voiceControls.micOn && !voiceControls.muted && isOnline ? (
+                    <Mic className="w-3.5 h-3.5" />
                   ) : (
                     <MicOff className="w-3.5 h-3.5" />
                   )}
                   <span className="hidden sm:inline">
-                    {voiceControls.micOn
-                      ? voiceControls.speaking && !voiceControls.muted
-                        ? 'Bicara'
-                        : voiceControls.muted
-                          ? 'Mic Off'
-                          : 'Mic On'
-                      : 'On Mic'}
+                    {!isOnline
+                      ? 'Offline'
+                      : voiceControls.micOn
+                        ? voiceControls.speaking && !voiceControls.muted
+                          ? 'Bicara'
+                          : voiceControls.muted
+                            ? 'Mic Off'
+                            : 'Mic On'
+                        : 'On Mic'}
                   </span>
                 </button>
 
@@ -599,10 +660,11 @@ export const HUD: React.FC<HUDProps> = ({
                   onClick={() => {
                     soundEngine.playClick();
                     setMusicPanelOpen(false);
+                    setEmotesOpen(false);
                     setVoicePanelOpen((v) => !v);
                   }}
                   title="Pengaturan & Status Voice Chat"
-                  className={`p-2 rounded-xl border cursor-pointer ${
+                  className={`touch-control p-2 rounded-xl border cursor-pointer flex items-center justify-center ${
                     voicePanelOpen
                       ? 'bg-sky-500 border-sky-300 text-slate-950'
                       : 'bg-[#070d20]/90 hover:bg-slate-800 border-slate-700 text-sky-300'
@@ -617,10 +679,11 @@ export const HUD: React.FC<HUDProps> = ({
               onClick={() => {
                 soundEngine.playClick();
                 setVoicePanelOpen(false);
+                setEmotesOpen(false);
                 setMusicPanelOpen((v) => !v);
               }}
               title="Kontrol Musik Latar"
-              className={`px-2.5 py-2 rounded-xl border flex items-center gap-1.5 text-[11px] font-bold cursor-pointer ${
+              className={`touch-control px-2.5 py-2 rounded-xl border flex items-center justify-center gap-1.5 text-[11px] font-bold cursor-pointer ${
                 musicPanelOpen
                   ? 'bg-violet-500 border-violet-300 text-white'
                   : saveState.settings.musicMuted || saveState.settings.musicPaused
@@ -634,7 +697,7 @@ export const HUD: React.FC<HUDProps> = ({
 
             <button
               onClick={openFullMap}
-              className="p-2 rounded-xl bg-[#070d20]/90 hover:bg-slate-800 border border-slate-700 text-sky-300 cursor-pointer"
+              className="touch-control p-2 rounded-xl bg-[#070d20]/90 hover:bg-slate-800 border border-slate-700 text-sky-300 flex items-center justify-center cursor-pointer"
               title="Buka Peta Stasiun"
             >
               <MapIcon className="w-4 h-4" />
@@ -645,7 +708,7 @@ export const HUD: React.FC<HUDProps> = ({
                   soundEngine.playClick();
                   onOpenInventory();
                 }}
-                className="p-2 rounded-xl bg-[#070d20]/90 hover:bg-slate-800 border border-slate-700 text-emerald-300 cursor-pointer"
+                className="touch-control p-2 rounded-xl bg-[#070d20]/90 hover:bg-slate-800 border border-slate-700 text-emerald-300 flex items-center justify-center cursor-pointer"
                 title="Buka Inventaris"
               >
                 <Package className="w-4 h-4" />
@@ -656,7 +719,7 @@ export const HUD: React.FC<HUDProps> = ({
                 soundEngine.playClick();
                 onResetCamera();
               }}
-              className="p-2 rounded-xl bg-[#070d20]/90 hover:bg-slate-800 border border-slate-700 text-slate-200 cursor-pointer"
+              className="touch-control p-2 rounded-xl bg-[#070d20]/90 hover:bg-slate-800 border border-slate-700 text-slate-200 flex items-center justify-center cursor-pointer"
               title="Reset Kamera (R)"
             >
               <RotateCcw className="w-4 h-4" />
@@ -666,17 +729,30 @@ export const HUD: React.FC<HUDProps> = ({
                 soundEngine.playClick();
                 onUpdateSettings({ ...saveState.settings, muted: !saveState.settings.muted });
               }}
-              className="p-2 rounded-xl bg-[#070d20]/90 hover:bg-slate-800 border border-slate-700 text-amber-300 cursor-pointer"
+              className="touch-control p-2 rounded-xl bg-[#070d20]/90 hover:bg-slate-800 border border-slate-700 text-amber-300 flex items-center justify-center cursor-pointer"
               title="Mute / Unmute Global"
             >
               {saveState.settings.muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
             </button>
+            {onOpenTutorial && (
+              <button
+                onClick={() => {
+                  soundEngine.playClick();
+                  onOpenTutorial();
+                }}
+                className="touch-control p-2 rounded-xl bg-[#070d20]/90 hover:bg-slate-800 border border-slate-700 text-sky-200 flex items-center justify-center cursor-pointer"
+                title="Panduan Tutorial"
+                aria-label="Panduan Tutorial"
+              >
+                <HelpCircle className="w-4 h-4" />
+              </button>
+            )}
             <button
               onClick={() => {
                 soundEngine.playClick();
                 onTogglePause();
               }}
-              className="p-2 rounded-xl bg-[#070d20]/90 hover:bg-slate-800 border border-slate-700 text-white cursor-pointer"
+              className="touch-control p-2 rounded-xl bg-[#070d20]/90 hover:bg-slate-800 border border-slate-700 text-white flex items-center justify-center cursor-pointer"
               title="Menu Pause (ESC)"
             >
               <Pause className="w-4 h-4" />
@@ -685,7 +761,7 @@ export const HUD: React.FC<HUDProps> = ({
 
           {/* Voice Error Alert */}
           {isMultiplayer && voiceControls?.micError && (
-            <div className="w-72 bg-rose-950/95 border border-rose-500/60 rounded-xl px-3 py-2 text-[11px] text-rose-100 flex items-start justify-between gap-2 shadow-xl">
+            <div className="w-64 sm:w-72 bg-rose-950/95 border border-rose-500/60 rounded-xl px-3 py-2 text-[11px] text-rose-100 flex items-start justify-between gap-2 shadow-xl">
               <span>{voiceControls.micError}</span>
               <button
                 onClick={voiceControls.onClearMicError}
@@ -698,7 +774,7 @@ export const HUD: React.FC<HUDProps> = ({
 
           {/* Music Quick Popover */}
           {musicPanelOpen && (
-            <div className="w-72 bg-[#070d22]/95 border border-violet-500/45 rounded-2xl p-3.5 shadow-2xl space-y-3 z-40">
+            <div className="w-64 sm:w-72 max-w-[calc(100vw-24px)] max-h-[calc(100dvh-110px)] overflow-y-auto sci-scroll bg-[#070d22]/95 border border-violet-500/45 rounded-2xl p-3.5 shadow-2xl space-y-3 z-40">
               <div className="flex items-center justify-between border-b border-slate-800 pb-2">
                 <div className="flex items-center gap-2">
                   <Music className="w-4 h-4 text-violet-400" />
@@ -825,7 +901,7 @@ export const HUD: React.FC<HUDProps> = ({
 
           {/* Voice Chat Panel Popover */}
           {isMultiplayer && voicePanelOpen && voiceControls && (
-            <div className="w-72 bg-[#070d22]/95 border border-sky-500/45 rounded-2xl p-3.5 shadow-2xl space-y-3 z-40">
+            <div className="w-64 sm:w-72 max-w-[calc(100vw-24px)] max-h-[calc(100dvh-110px)] overflow-y-auto sci-scroll bg-[#070d22]/95 border border-sky-500/45 rounded-2xl p-3.5 shadow-2xl space-y-3 z-40">
               <div className="flex items-center justify-between border-b border-slate-800 pb-2">
                 <div className="flex items-center gap-2">
                   <Headphones className="w-4 h-4 text-sky-400" />
@@ -840,6 +916,12 @@ export const HUD: React.FC<HUDProps> = ({
                   <X className="w-3.5 h-3.5" />
                 </button>
               </div>
+
+              {!isOnline && (
+                <div className="bg-amber-950/60 border border-amber-500/40 rounded-lg px-2.5 py-1.5 text-[11px] text-amber-200">
+                  Mode Offline aktif — Voice Chat membutuhkan koneksi internet.
+                </div>
+              )}
 
               <div className="flex items-center justify-between bg-slate-900/80 border border-slate-800 rounded-xl px-3 py-2 text-xs">
                 <span className="text-slate-200 font-medium">Fitur Voice Chat</span>
@@ -880,7 +962,7 @@ export const HUD: React.FC<HUDProps> = ({
                 />
               </div>
 
-              <div className="space-y-1.5 max-h-40 overflow-y-auto sci-scroll pr-0.5">
+              <div className="space-y-1.5 max-h-36 overflow-y-auto sci-scroll pr-0.5">
                 {(mpSnapshot?.players || []).map((rp) => {
                   const isMe = rp.id === myPlayerId;
                   const peerMicOn = isMe ? voiceControls.micOn : Boolean(rp.voice?.micOn);
@@ -898,7 +980,7 @@ export const HUD: React.FC<HUDProps> = ({
                         <span
                           className={`w-2 h-2 rounded-full shrink-0 ${
                             peerSpeaking
-                              ? 'bg-emerald-400 animate-pulse'
+                              ? 'bg-emerald-400'
                               : peerMicOn && !peerMuted
                                 ? 'bg-sky-400'
                                 : 'bg-slate-600'
@@ -931,10 +1013,10 @@ export const HUD: React.FC<HUDProps> = ({
             </div>
           )}
 
-          {/* Live Minimap (Smoothly Auto-Recentered around Controlled Player) */}
+          {/* Live Minimap (Compact on short mobile landscape) */}
           <button
             onClick={openFullMap}
-            className="w-28 h-28 md:w-32 md:h-32 bg-[#060b1c]/92 border border-sky-500/40 rounded-xl p-1 shadow-lg cursor-pointer hover:border-sky-400 overflow-hidden"
+            className="w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 lg:w-32 lg:h-32 bg-[#060b1c]/92 border border-sky-500/40 rounded-xl p-1 shadow-lg cursor-pointer hover:border-sky-400 overflow-hidden"
             title="Klik untuk Peta Besar"
           >
             <svg viewBox={miniViewBox} className="w-full h-full">
@@ -1045,10 +1127,10 @@ export const HUD: React.FC<HUDProps> = ({
         </div>
       </div>
 
-      {/* BOTTOM ROW: Touch Joystick, Proximity Prompts, Jump/Emotes/Action Controls */}
-      <div className="flex items-end justify-between gap-4">
+      {/* BOTTOM ROW: Touch Joystick, Device-Aware Proximity Prompts, Jump/Emotes/Action Controls */}
+      <div className="flex items-end justify-between gap-2 sm:gap-4">
         {/* Bottom-Left: Virtual Joystick (isolated pointerId for smooth multi-touch camera 360°) */}
-        <div className="pointer-events-auto">
+        <div className="pointer-events-auto shrink-0">
           {saveState.settings.showTouchControls && (
             <div
               ref={joyBaseRef}
@@ -1070,29 +1152,33 @@ export const HUD: React.FC<HUDProps> = ({
               }}
               onPointerUp={(e) => resetJoystick(e.pointerId)}
               onPointerCancel={(e) => resetJoystick(e.pointerId)}
-              className="w-24 h-24 md:w-28 md:h-28 rounded-full bg-slate-900/75 border-2 border-sky-400/40 flex items-center justify-center touch-none cursor-grab"
+              className="w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 rounded-full bg-slate-900/75 border-2 border-sky-400/40 flex items-center justify-center touch-none cursor-grab"
             >
               <div
-                className="w-10 h-10 rounded-full bg-sky-400/85 border-2 border-white shadow-lg transition-transform duration-75"
+                className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-sky-400/85 border-2 border-white shadow-lg transition-transform duration-75"
                 style={{ transform: `translate(${joyVisual.x}px, ${joyVisual.y}px)` }}
               />
             </div>
           )}
         </div>
 
-        {/* Bottom-Center: Proximity Prompts & Desktop Hints */}
-        <div className="flex flex-col items-center gap-2 mb-1">
-          <div className="flex flex-wrap items-center justify-center gap-2">
+        {/* Bottom-Center: Device-Aware Proximity Prompts */}
+        <div className="flex flex-col items-center gap-1.5 mb-0.5 min-w-0 flex-1 max-w-[calc(100vw-220px)] sm:max-w-lg">
+          <div className="flex flex-wrap items-center justify-center gap-1.5 sm:gap-2">
             {hud.nearbyStasisPod && amAlive && onCallMeeting && (
               <button
                 onClick={() => {
                   soundEngine.playInteract();
                   onCallMeeting('report', hud.nearbyStasisPod!.id);
                 }}
-                className="pointer-events-auto flex items-center gap-2 px-5 py-3 rounded-xl bg-rose-500 hover:bg-rose-400 text-white font-display font-bold text-xs md:text-sm shadow-xl cursor-pointer animate-float-slow"
+                className="pointer-events-auto min-h-[44px] flex items-center gap-2 px-3.5 sm:px-5 py-2 sm:py-2.5 rounded-xl bg-rose-500 hover:bg-rose-400 text-white font-display font-bold text-[11px] sm:text-xs md:text-sm shadow-xl cursor-pointer"
               >
-                <ShieldAlert className="w-4 h-4" />
-                <span>[E] LAPORKAN STASIS ({hud.nearbyStasisPod.victimName})</span>
+                <ShieldAlert className="w-4 h-4 shrink-0" />
+                <span className="truncate">
+                  {hud.isTouchDevice
+                    ? `Tap Laporkan Stasis (${hud.nearbyStasisPod.victimName})`
+                    : `Tekan E — Laporkan Stasis (${hud.nearbyStasisPod.victimName})`}
+                </span>
               </button>
             )}
 
@@ -1102,27 +1188,27 @@ export const HUD: React.FC<HUDProps> = ({
                   soundEngine.playInteract();
                   onInteractVent(hud.nearbyVent!.id);
                 }}
-                className="pointer-events-auto flex items-center gap-2 px-4 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-display font-bold text-xs md:text-sm shadow-xl cursor-pointer"
+                className="pointer-events-auto min-h-[44px] flex items-center gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-display font-bold text-[11px] sm:text-xs md:text-sm shadow-xl cursor-pointer"
               >
-                <Wind className="w-4 h-4" />
-                <span>[E] {hud.nearbyVent.label}</span>
+                <Wind className="w-4 h-4 shrink-0" />
+                <span className="truncate">
+                  {hud.isTouchDevice
+                    ? `Tap ${hud.nearbyVent.label}`
+                    : `Tekan E — ${hud.nearbyVent.label}`}
+                </span>
               </button>
             )}
 
             {hud.nearbyBook && onInteractBook && (() => {
               const isBookRead = readBookSet.has(hud.nearbyBook.id);
               const isBookOpen = activeTheoryBookId === hud.nearbyBook.id;
-              const isFirstBookStart =
-                !isBookRead &&
-                hud.nearbyBook.id === 'book_2_karakteristik' &&
-                saveState.completedMissions.length === 0;
               return (
                 <button
                   onClick={() => {
                     soundEngine.playInteract();
                     onInteractBook(hud.nearbyBook!.id);
                   }}
-                  className={`pointer-events-auto flex items-center gap-2 px-4 py-3 rounded-xl font-display font-bold text-xs md:text-sm shadow-xl cursor-pointer animate-float-slow whitespace-nowrap border-2 ${
+                  className={`pointer-events-auto min-h-[44px] flex items-center gap-1.5 sm:gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl font-display font-bold text-[11px] sm:text-xs md:text-sm shadow-xl cursor-pointer border-2 max-w-full ${
                     isBookOpen
                       ? 'bg-sky-400 border-sky-200 text-slate-950 shadow-sky-500/25'
                       : isBookRead
@@ -1130,24 +1216,26 @@ export const HUD: React.FC<HUDProps> = ({
                         : 'bg-amber-400 hover:bg-amber-300 border-amber-200 text-slate-950 shadow-amber-500/35'
                   }`}
                 >
-                  <kbd className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-md bg-slate-950 text-amber-300 font-mono-num text-xs font-extrabold shadow">
-                    E
-                  </kbd>
-                  <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-slate-950/15">
-                    <Hand className="w-3 h-3 shrink-0" />
-                    Tap
-                  </span>
+                  {!hud.isTouchDevice ? (
+                    <kbd className="inline-flex items-center justify-center min-w-[22px] h-6 px-1.5 rounded-md bg-slate-950 text-amber-300 font-mono-num text-xs font-extrabold shadow shrink-0">
+                      E
+                    </kbd>
+                  ) : (
+                    <Hand className="w-4 h-4 shrink-0" />
+                  )}
                   {isBookRead ? (
                     <BookCheck className="w-4 h-4 shrink-0" />
                   ) : (
                     <BookOpen className="w-4 h-4 shrink-0" />
                   )}
-                  <span>
-                    {isBookRead
-                      ? `Baca Ulang Buku (✓): ${hud.nearbyBook.topicLabel}`
-                      : isFirstBookStart
-                        ? `Buka Buku Pertama: ${hud.nearbyBook.topicLabel}`
-                        : `Buka Buku Teori: ${hud.nearbyBook.topicLabel}`}
+                  <span className="truncate">
+                    {hud.isTouchDevice
+                      ? isBookRead
+                        ? `Tap untuk baca ulang Buku (${hud.nearbyBook.topicLabel})`
+                        : `Tap untuk membaca Buku (${hud.nearbyBook.topicLabel})`
+                      : isBookRead
+                        ? `Tekan E — Baca Ulang Buku (${hud.nearbyBook.topicLabel})`
+                        : `Tekan E untuk membuka Buku (${hud.nearbyBook.topicLabel})`}
                   </span>
                 </button>
               );
@@ -1179,7 +1267,7 @@ export const HUD: React.FC<HUDProps> = ({
                     soundEngine.playInteract();
                     onInteract(term.roomId, term.missionId);
                   }}
-                  className={`pointer-events-auto flex items-center gap-2 px-5 py-3 rounded-xl font-display font-bold text-xs md:text-sm shadow-xl cursor-pointer animate-float-slow whitespace-nowrap ${
+                  className={`pointer-events-auto min-h-[44px] flex items-center gap-1.5 sm:gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl font-display font-bold text-[11px] sm:text-xs md:text-sm shadow-xl cursor-pointer max-w-full ${
                     blockedByBook
                       ? 'bg-amber-950/95 hover:bg-amber-900 border border-amber-400/60 text-amber-200 shadow-amber-500/15'
                       : chapLocked
@@ -1193,14 +1281,19 @@ export const HUD: React.FC<HUDProps> = ({
                     <Lock className="w-4 h-4 shrink-0" />
                   ) : booksReady && isMissionTerm && !isDone ? (
                     <LockOpen className="w-4 h-4 shrink-0" />
-                  ) : (
+                  ) : hud.isTouchDevice ? (
                     <Hand className="w-4 h-4 shrink-0" />
+                  ) : (
+                    <kbd className="inline-flex items-center justify-center min-w-[22px] h-6 px-1.5 rounded-md bg-slate-950 text-sky-300 font-mono-num text-xs font-extrabold shadow shrink-0">
+                      E
+                    </kbd>
                   )}
-                  <span>
-                    [E]{' '}
+                  <span className="truncate">
                     {blockedByBook
                       ? `Kuis Terkunci — Baca Buku Teori Dulu (${term.label})`
-                      : term.label}
+                      : hud.isTouchDevice
+                        ? `Tap untuk membuka Terminal (${term.label})`
+                        : `Tekan E untuk mengakses Terminal (${term.label})`}
                   </span>
                 </button>
               );
@@ -1212,19 +1305,21 @@ export const HUD: React.FC<HUDProps> = ({
                   soundEngine.playInteract();
                   onCallMeeting('emergency');
                 }}
-                className="pointer-events-auto flex items-center gap-2 px-4 py-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-display font-bold text-xs md:text-sm shadow-xl cursor-pointer whitespace-nowrap"
+                className="pointer-events-auto min-h-[44px] flex items-center gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-display font-bold text-[11px] sm:text-xs md:text-sm shadow-xl cursor-pointer"
               >
-                <AlertTriangle className="w-4 h-4" />
-                <span>EMERGENCY MEETING</span>
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span className="truncate">
+                  {hud.isTouchDevice ? 'Tap Emergency Meeting' : 'Tekan E — Emergency Meeting'}
+                </span>
               </button>
             )}
           </div>
         </div>
 
-        {/* Bottom-Right: Closable Emote Panel + Jump / Emotes / Context Actions */}
-        <div className="pointer-events-auto relative flex flex-col items-end gap-2">
+        {/* Bottom-Right: Closable Emote Panel + Jump / Emotes / Impostor Actions */}
+        <div className="pointer-events-auto relative flex flex-col items-end gap-2 shrink-0">
           {emotesOpen && (
-            <div className="w-64 sm:w-72 bg-[#070d22]/95 border border-sky-500/45 rounded-2xl p-3 shadow-2xl space-y-2.5">
+            <div className="w-60 sm:w-72 max-w-[calc(100vw-24px)] max-h-[calc(100dvh-110px)] overflow-y-auto sci-scroll bg-[#070d22]/95 border border-sky-500/45 rounded-2xl p-3 shadow-2xl space-y-2.5">
               <div className="flex items-center justify-between border-b border-slate-800 pb-2">
                 <div className="flex items-center gap-2">
                   <Smile className="w-4 h-4 text-sky-400" />
@@ -1254,13 +1349,13 @@ export const HUD: React.FC<HUDProps> = ({
                         setEmotesOpen(false);
                       }}
                       title={em.label}
-                      className={`flex flex-col items-center justify-center py-2 px-1 rounded-xl border transition-all cursor-pointer ${
+                      className={`min-h-[44px] flex flex-col items-center justify-center py-1.5 px-1 rounded-xl border transition-all cursor-pointer ${
                         isActive
                           ? 'bg-sky-500/25 border-sky-400 text-white'
                           : 'bg-slate-900/90 hover:bg-slate-800 border-slate-700/80 text-slate-200'
                       }`}
                     >
-                      <span className="text-lg leading-none">{em.emoji}</span>
+                      <span className="text-base leading-none">{em.emoji}</span>
                       <span className="text-[9px] font-semibold truncate w-full text-center mt-1">
                         {em.label}
                       </span>
@@ -1271,7 +1366,7 @@ export const HUD: React.FC<HUDProps> = ({
             </div>
           )}
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2">
             {isMultiplayer && mpRole === 'impostor' && amAlive && onEliminateTarget && (
               <button
                 disabled={!hud.nearbyEliminateTarget || killCdSecs > 0}
@@ -1281,13 +1376,13 @@ export const HUD: React.FC<HUDProps> = ({
                     onEliminateTarget(hud.nearbyEliminateTarget.id);
                   }
                 }}
-                className={`px-4 py-3 rounded-2xl font-display font-bold text-xs flex flex-col items-center justify-center border-2 shadow-xl transition-all ${
+                className={`min-h-[48px] px-3 sm:px-4 py-2 sm:py-3 rounded-2xl font-display font-bold text-[11px] sm:text-xs flex flex-col items-center justify-center border-2 shadow-xl transition-all ${
                   hud.nearbyEliminateTarget && killCdSecs === 0
                     ? 'bg-rose-600 hover:bg-rose-500 border-rose-300 text-white cursor-pointer'
                     : 'bg-slate-900/90 border-slate-700 text-slate-400 cursor-not-allowed'
                 }`}
               >
-                <Zap className="w-5 h-5 mb-0.5" />
+                <Zap className="w-4 h-4 sm:w-5 sm:h-5 mb-0.5" />
                 <span>
                   {killCdSecs > 0
                     ? `STASIS (${killCdSecs}s)`
@@ -1298,46 +1393,22 @@ export const HUD: React.FC<HUDProps> = ({
               </button>
             )}
 
-            {saveState.settings.showTouchControls && hud.nearbyBook && onInteractBook && (
-              <button
-                onClick={() => {
-                  soundEngine.playInteract();
-                  onInteractBook(hud.nearbyBook!.id);
-                }}
-                className="w-16 h-16 rounded-full bg-amber-400 hover:bg-amber-300 border-2 border-amber-200 text-slate-950 font-display font-bold text-[10px] flex flex-col items-center justify-center shadow-lg cursor-pointer"
-              >
-                <BookOpen className="w-5 h-5" />
-                <span>TAP BUKU</span>
-              </button>
-            )}
-
-            {saveState.settings.showTouchControls && hud.nearbyTerminal && (
-              <button
-                onClick={() => {
-                  soundEngine.playInteract();
-                  onInteract(hud.nearbyTerminal!.roomId, hud.nearbyTerminal!.missionId);
-                }}
-                className="w-16 h-16 rounded-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-display font-bold text-xs flex flex-col items-center justify-center shadow-lg cursor-pointer"
-              >
-                <Hand className="w-5 h-5" />
-                <span>AKSES</span>
-              </button>
-            )}
-
             <button
               onClick={() => {
                 soundEngine.playClick();
+                setMusicPanelOpen(false);
+                setVoicePanelOpen(false);
                 setEmotesOpen((v) => !v);
               }}
               aria-label="Buka Panel Emote"
               title="Emotes"
-              className={`w-14 h-14 md:w-15 md:h-15 rounded-full border-2 font-display font-bold text-[10px] flex flex-col items-center justify-center shadow-lg cursor-pointer transition-colors ${
+              className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full border-2 font-display font-bold text-[9px] sm:text-[10px] flex flex-col items-center justify-center shadow-lg cursor-pointer transition-colors ${
                 emotesOpen || activeEmote
                   ? 'bg-violet-500 border-violet-300 text-white'
                   : 'bg-[#08122b]/90 hover:bg-slate-800 border-violet-400/50 text-violet-200'
               }`}
             >
-              <Smile className="w-5 h-5" />
+              <Smile className="w-4 h-4 sm:w-5 sm:h-5" />
               <span>EMOTE</span>
             </button>
 
@@ -1349,9 +1420,9 @@ export const HUD: React.FC<HUDProps> = ({
               onClick={(e) => e.preventDefault()}
               aria-label="Lompat"
               title="Lompat (Spasi)"
-              className="w-16 h-16 rounded-full bg-sky-500 hover:bg-sky-400 active:scale-95 border-2 border-sky-200 text-slate-950 font-display font-bold text-[10px] flex flex-col items-center justify-center shadow-xl cursor-pointer touch-none"
+              className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-sky-500 hover:bg-sky-400 active:scale-95 border-2 border-sky-200 text-slate-950 font-display font-bold text-[9px] sm:text-[10px] flex flex-col items-center justify-center shadow-xl cursor-pointer touch-none"
             >
-              <ArrowUp className="w-5 h-5 stroke-[2.5]" />
+              <ArrowUp className="w-4 h-4 sm:w-5 sm:h-5 stroke-[2.5]" />
               <span>LOMPAT</span>
             </button>
           </div>

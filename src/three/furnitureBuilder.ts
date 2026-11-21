@@ -11,6 +11,8 @@ export interface VentObject {
   lid: THREE.Group;
   ringMat: THREE.MeshStandardMaterial;
   openProgress: number;
+  outlineGroup: THREE.Group;
+  hitMesh: THREE.Mesh;
 }
 
 export interface TheoryBookObject {
@@ -22,6 +24,10 @@ export interface TheoryBookObject {
   beacon: THREE.Mesh;
   sparkles: THREE.Points;
   sparkleMat: THREE.PointsMaterial;
+  outlineGroup: THREE.Group;
+  outlineMat: THREE.LineBasicMaterial;
+  outlineRingMat: THREE.MeshBasicMaterial;
+  hitMesh: THREE.Mesh;
 }
 
 export interface SpinnerEntry {
@@ -1209,6 +1215,25 @@ export function populateStationFurniture(
     rim.position.y = 0.015;
     vGroup.add(rim);
 
+    const ventOutlineMat = new THREE.LineBasicMaterial({ color: 0x34d399, transparent: true, opacity: 0.95 });
+    const ventOutlineGroup = new THREE.Group();
+    const ventEdge = new THREE.LineSegments(
+      new THREE.EdgesGeometry(new THREE.BoxGeometry(1.6, 0.14, 1.6)),
+      ventOutlineMat
+    );
+    ventEdge.position.y = 0.07;
+    ventOutlineGroup.add(ventEdge);
+    ventOutlineGroup.visible = false;
+    vGroup.add(ventOutlineGroup);
+
+    const ventHitMesh = new THREE.Mesh(
+      new THREE.BoxGeometry(1.65, 0.45, 1.65),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, colorWrite: false })
+    );
+    ventHitMesh.position.y = 0.22;
+    ventHitMesh.userData = { interactType: 'vent', ventId: v.id };
+    vGroup.add(ventHitMesh);
+
     const lid = new THREE.Group();
     lid.position.set(0, 0.08, -0.58);
     const lidBase = new THREE.Mesh(new THREE.BoxGeometry(1.18, 0.04, 1.16), metalLight);
@@ -1229,6 +1254,8 @@ export function populateStationFurniture(
       lid,
       ringMat,
       openProgress: 0,
+      outlineGroup: ventOutlineGroup,
+      hitMesh: ventHitMesh,
     };
   });
 
@@ -1240,6 +1267,15 @@ export function populateStationFurniture(
   const bookSpineGeo = boxGeo(0.06, 0.082, 0.485);
   const bookBeaconGeo = new THREE.OctahedronGeometry(0.09, 0);
   const bookHaloGeo = new THREE.RingGeometry(0.24, 0.31, 20);
+  const bookOutlineEdgeGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(0.43, 0.12, 0.55));
+  const bookOutlineRingGeo = new THREE.RingGeometry(0.29, 0.36, 24);
+  const bookHitGeo = new THREE.BoxGeometry(0.72, 0.65, 0.72);
+  const bookHitMat = new THREE.MeshBasicMaterial({
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    colorWrite: false,
+  });
   const pagesMat = stdMat(0xf8fafc, 0.8, 0.02);
 
   // Shared 4-point star sparkle sprite texture for unread books
@@ -1324,7 +1360,29 @@ export function populateStationFurniture(
     });
     const sparkles = new THREE.Points(spGeo, sparkleMat);
 
-    bGroup.add(cover, pages, spine, halo, beacon, sparkles);
+    // Subtle proximity/hover highlight outline (hidden unless within range or hovered)
+    const outlineGroup = new THREE.Group();
+    const outlineMat = new THREE.LineBasicMaterial({ color: 0xfbbf24, transparent: true, opacity: 0.95 });
+    const edgeLines = new THREE.LineSegments(bookOutlineEdgeGeo, outlineMat);
+    edgeLines.position.y = 0.048;
+    const outlineRingMat = new THREE.MeshBasicMaterial({
+      color: 0xfbbf24,
+      transparent: true,
+      opacity: 0.72,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const ringOutline = new THREE.Mesh(bookOutlineRingGeo, outlineRingMat);
+    ringOutline.rotation.x = -Math.PI / 2;
+    ringOutline.position.y = 0.014;
+    outlineGroup.add(edgeLines, ringOutline);
+    outlineGroup.visible = false;
+
+    const hitMesh = new THREE.Mesh(bookHitGeo, bookHitMat);
+    hitMesh.position.y = 0.25;
+    hitMesh.userData = { interactType: 'book', bookId: bookDef.id, roomId: bookDef.roomId };
+
+    bGroup.add(cover, pages, spine, halo, beacon, sparkles, outlineGroup, hitMesh);
     activeRoom.group.add(bGroup);
     registerSpinner({ obj: beacon, speedY: 1.6, floatAmp: 0.07, baseY: 0.42 });
 
@@ -1337,6 +1395,10 @@ export function populateStationFurniture(
       beacon,
       sparkles,
       sparkleMat,
+      outlineGroup,
+      outlineMat,
+      outlineRingMat,
+      hitMesh,
     };
   });
 

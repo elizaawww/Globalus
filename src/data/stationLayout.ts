@@ -247,15 +247,15 @@ export const WALKABLE_RECTS: Rect2D[] = [
     roomId: r.id,
     trimColor: r.accentNum,
   })),
-  // West Wing Corridors & Hub (Widened to 6.4m / 9m hub)
-  { id: 'corr_w1', minX: -14, maxX: -9, minZ: -3.2, maxZ: 3.2, trimColor: 0x0ea5e9 },
+  // West Wing Corridors & Hub (flush seam bounds to prevent coplanar floor Z-fighting)
+  { id: 'corr_w1', minX: -13.5, maxX: -9, minZ: -3.2, maxZ: 3.2, trimColor: 0x0ea5e9 },
   { id: 'hub_w', minX: -22.5, maxX: -13.5, minZ: -4.5, maxZ: 4.5, trimColor: 0x0ea5e9 },
   { id: 'corr_wn', minX: -21.2, maxX: -14.8, minZ: -10, maxZ: -4.5, trimColor: 0x0ea5e9 },
   { id: 'corr_ws', minX: -21.2, maxX: -14.8, minZ: 4.5, maxZ: 10, trimColor: 0x6366f1 },
   { id: 'corr_wfar', minX: -30, maxX: -22.5, minZ: -3.2, maxZ: 3.2, trimColor: 0x2563eb },
 
-  // East Wing Corridors & Hub (Widened to 6.4m / 9m hub)
-  { id: 'corr_e1', minX: 9, maxX: 14, minZ: -3.2, maxZ: 3.2, trimColor: 0x10b981 },
+  // East Wing Corridors & Hub (flush seam bounds to prevent coplanar floor Z-fighting)
+  { id: 'corr_e1', minX: 9, maxX: 13.5, minZ: -3.2, maxZ: 3.2, trimColor: 0x10b981 },
   { id: 'hub_e', minX: 13.5, maxX: 22.5, minZ: -4.5, maxZ: 4.5, trimColor: 0x10b981 },
   { id: 'corr_en', minX: 14.8, maxX: 21.2, minZ: -10, maxZ: -4.5, trimColor: 0x10b981 },
   { id: 'corr_es', minX: 14.8, maxX: 21.2, minZ: 4.5, maxZ: 10, trimColor: 0xf59e0b },
@@ -419,6 +419,7 @@ export const PROP_COLLIDERS: PropCollider[] = [
   { id: 'lobby_kiosk_ne', minX: 3.7, maxX: 4.9, minZ: -7.1, maxZ: -5.9 },
   { id: 'lobby_plant_e', minX: 7.35, maxX: 8.25, minZ: -5.05, maxZ: -4.15 },
   { id: 'lobby_locker_nw', minX: 7.45, maxX: 8.35, minZ: 4.1, maxZ: 5.3 },
+  { id: 'lobby_secret_tv', minX: -3.9, maxX: -2.6, minZ: 6.45, maxZ: 7.45 },
 
   // Communication Room
   { id: 'comm_desk_w', minX: -23.9, maxX: -21.2, minZ: -18.0, maxZ: -14.8 },
@@ -504,6 +505,14 @@ export const PROP_COLLIDERS: PropCollider[] = [
   { id: 'obs_plant_sw', minX: -10.55, maxX: -9.45, minZ: -50.95, maxZ: -49.85 },
   { id: 'obs_plant_se', minX: 9.45, maxX: 10.55, minZ: -50.95, maxZ: -49.85 },
 ];
+
+export const SECRET_TV_CONSOLE = {
+  id: 'secret_tv_budaya',
+  roomId: 'central_lobby' as RoomId,
+  x: -3.25,
+  z: 6.95,
+  label: 'TV Siaran Budaya Global (Misi Rahasia)',
+};
 
 export const WALL_THICK = 0.38;
 export const WALL_HEIGHT = 4.2;

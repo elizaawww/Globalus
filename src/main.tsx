@@ -5,7 +5,25 @@ import App from './App.tsx';
 import './index.css';
 
 if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
-  registerSW({ immediate: true });
+  if (import.meta.env.PROD) {
+    registerSW({
+      immediate: false,
+      onRegistered(registration) {
+        if (registration) {
+          registration.update().catch(() => {});
+        }
+      },
+    });
+  } else {
+    navigator.serviceWorker
+      .getRegistrations()
+      .then((regs) => {
+        regs.forEach((reg) => {
+          reg.unregister().catch(() => {});
+        });
+      })
+      .catch(() => {});
+  }
 }
 
 interface ErrorBoundaryState {

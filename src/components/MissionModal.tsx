@@ -20,6 +20,12 @@ interface MissionModalProps {
   onClose: () => void;
 }
 
+interface QuestionAttemptRecord {
+  number: number;
+  topic: string;
+  isCorrect: boolean;
+}
+
 export const MissionModal: React.FC<MissionModalProps> = ({
   missionId,
   alreadyCompleted,
@@ -44,8 +50,7 @@ export const MissionModal: React.FC<MissionModalProps> = ({
   );
 
   const [qIdx, setQIdx] = useState(0);
-  const [correctCount, setCorrectCount] = useState(0);
-  const [answeredCount, setAnsweredCount] = useState(0);
+  const [questionResults, setQuestionResults] = useState<Record<number, QuestionAttemptRecord>>({});
   const [finished, setFinished] = useState(false);
   const [attemptKey, setAttemptKey] = useState(0);
 
@@ -53,11 +58,18 @@ export const MissionModal: React.FC<MissionModalProps> = ({
   const currentQ = questions[qIdx];
 
   const handleResult = (isCorrect: boolean) => {
-    if (!canAccessQuiz) return;
-    setAnsweredCount((a) => a + 1);
-    if (isCorrect) {
-      setCorrectCount((c) => c + 1);
-    }
+    if (!canAccessQuiz || !currentQ) return;
+    setQuestionResults((prev) => {
+      if (prev[qIdx] !== undefined) return prev;
+      return {
+        ...prev,
+        [qIdx]: {
+          number: qIdx + 1,
+          topic: meta.topic,
+          isCorrect,
+        },
+      };
+    });
   };
 
   const handleNext = () => {
@@ -69,46 +81,50 @@ export const MissionModal: React.FC<MissionModalProps> = ({
     }
   };
 
+  const answeredCount = Object.keys(questionResults).length;
+  const correctCount = Object.values(questionResults).filter((r) => r.isCorrect).length;
+  const wrongQuestions = Object.values(questionResults)
+    .filter((r) => !r.isCorrect)
+    .sort((a, b) => a.number - b.number);
   const finalScore = total > 0 ? Math.round((correctCount / total) * 100) : 100;
-  const passed = finalScore >= 50;
+  const passed = total > 0 ? correctCount === total : true;
 
   const handleRetry = () => {
     soundEngine.playClick();
     setQIdx(0);
-    setCorrectCount(0);
-    setAnsweredCount(0);
+    setQuestionResults({});
     setFinished(false);
     setAttemptKey((k) => k + 1);
   };
 
   const handleConfirmFinish = () => {
-    if (!canAccessQuiz) {
+    if (!canAccessQuiz || !passed) {
       soundEngine.playError();
       return;
     }
     soundEngine.playTaskComplete();
-    onComplete(missionId, Math.max(60, finalScore));
+    onComplete(missionId, 100);
   };
 
   const progressPct = total > 0 ? (answeredCount / total) * 100 : 100;
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-3 md:p-6">
+    <div className="fixed inset-0 z-50 bg-slate-950/90 flex items-center justify-center p-3 md:p-6">
       <div
-        className="w-full max-w-3xl max-h-[90vh] bg-[#080f24] rounded-2xl shadow-2xl flex flex-col overflow-hidden border"
+        className="w-full max-w-3xl max-h-[92dvh] bg-[#080f24] rounded-2xl shadow-2xl flex flex-col overflow-hidden border"
         style={{ borderColor: `${chapInfo.accentHex}70` }}
       >
         {/* Header */}
-        <div className="px-5 py-3.5 border-b border-slate-800 flex items-center justify-between shrink-0 bg-slate-900/75">
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
+        <div className="px-4 sm:px-5 py-3 border-b border-slate-800 flex items-center justify-between gap-2 shrink-0 bg-slate-900/75">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
               <span
                 className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider text-slate-950"
                 style={{ backgroundColor: chapInfo.accentHex }}
               >
                 Chapter {meta.chapter}
               </span>
-              <span className="text-[11px] text-slate-300 font-semibold">{meta.topic}</span>
+              <span className="text-[11px] text-slate-300 font-semibold truncate">{meta.topic}</span>
               {canAccessQuiz ? (
                 <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 font-bold">
                   Buku Teori Selesai ✓
@@ -124,15 +140,15 @@ export const MissionModal: React.FC<MissionModalProps> = ({
                 </span>
               )}
             </div>
-            <h2 className="font-display text-base md:text-lg font-bold text-white mt-0.5">
+            <h2 className="font-display text-sm sm:text-base md:text-lg font-bold text-white mt-0.5 truncate">
               {meta.title}
             </h2>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             {canAccessQuiz && !finished && (
               <span className="text-xs font-mono-num text-slate-300">
-                Tahap {qIdx + 1} / {total}
+                Soal {qIdx + 1} / {total}
               </span>
             )}
             <button
@@ -140,7 +156,7 @@ export const MissionModal: React.FC<MissionModalProps> = ({
                 soundEngine.playClick();
                 onClose();
               }}
-              className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 cursor-pointer"
+              className="min-w-[40px] min-h-[40px] p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center cursor-pointer"
               aria-label="Tutup Misi"
             >
               <X className="w-4 h-4" />
@@ -159,10 +175,16 @@ export const MissionModal: React.FC<MissionModalProps> = ({
           />
         </div>
 
+        {canAccessQuiz && !finished && (
+          <div className="px-4 sm:px-5 py-2 bg-sky-950/50 border-b border-sky-500/25 text-[11px] sm:text-xs text-sky-200 font-medium shrink-0">
+            Jawab semua soal dengan benar untuk menyelesaikan misi.
+          </div>
+        )}
+
         {/* Body */}
-        <div className="flex-1 overflow-y-auto sci-scroll p-5 md:p-6">
+        <div className="flex-1 overflow-y-auto sci-scroll p-4 sm:p-5 md:p-6">
           {!canAccessQuiz ? (
-            <div className="bg-slate-900/90 border border-amber-500/40 rounded-2xl p-6 text-center space-y-4">
+            <div className="bg-slate-900/90 border border-amber-500/40 rounded-2xl p-5 sm:p-6 text-center space-y-4">
               <div className="w-14 h-14 rounded-2xl mx-auto flex items-center justify-center bg-amber-500/15 border border-amber-400/40">
                 <Lock className="w-7 h-7 text-amber-300" />
               </div>
@@ -205,7 +227,7 @@ export const MissionModal: React.FC<MissionModalProps> = ({
                             onClose();
                             onOpenBook(book.id);
                           }}
-                          className="px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-display font-bold text-[11px] shrink-0 cursor-pointer"
+                          className="min-h-[36px] px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-display font-bold text-[11px] shrink-0 cursor-pointer"
                         >
                           Buka Buku
                         </button>
@@ -216,7 +238,7 @@ export const MissionModal: React.FC<MissionModalProps> = ({
               </div>
 
               <p className="text-[11px] text-slate-400">
-                Dekati meja buku teori di {room?.name} dan tekan tombol <span className="font-bold text-amber-300">[E]</span>, lalu tekan <span className="font-bold text-emerald-300">Selesai Membaca</span>.
+                Dekati meja buku teori di {room?.name} dan tekan tombol <span className="font-bold text-amber-300">[E]</span> atau Tap buku, lalu tekan <span className="font-bold text-emerald-300">Selesai Membaca</span>.
               </p>
             </div>
           ) : !finished && currentQ ? (
@@ -224,11 +246,11 @@ export const MissionModal: React.FC<MissionModalProps> = ({
               key={`${missionId}_${currentQ.id}_${attemptKey}`}
               question={currentQ}
               onResult={handleResult}
-              nextButtonLabel={qIdx < total - 1 ? 'TAHAP BERIKUTNYA' : 'SELESAIKAN MISI'}
+              nextButtonLabel={qIdx < total - 1 ? 'SOAL BERIKUTNYA' : 'PERIKSA HASIL MISI'}
               onNext={handleNext}
             />
           ) : (
-            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 text-center space-y-4">
+            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 sm:p-6 text-center space-y-4">
               <div className="w-14 h-14 rounded-2xl mx-auto flex items-center justify-center bg-slate-950 border border-slate-700">
                 {passed ? (
                   <CheckCircle2 className="w-8 h-8 text-emerald-400" />
@@ -237,31 +259,61 @@ export const MissionModal: React.FC<MissionModalProps> = ({
                 )}
               </div>
 
-              <div>
-                <h3 className="font-display text-xl font-bold text-white">
-                  {passed ? 'KALIBRASI MODUL BERHASIL!' : 'ULANGI KALIBRASI MODUL'}
+              <div className="space-y-1.5">
+                <h3 className="font-display text-lg sm:text-xl font-bold text-white">
+                  {passed ? 'MISI SELESAI — SKOR SEMPURNA 100%!' : 'BELUM TUNTAS — HARUS 100% BENAR'}
                 </h3>
-                <p className="text-xs md:text-sm text-slate-300 mt-1">
+                <p className="text-xs md:text-sm text-slate-300">
                   Kamu menjawab benar{' '}
                   <span className="font-mono-num font-bold text-sky-300">
                     {correctCount} dari {total}
                   </span>{' '}
-                  tantangan ({finalScore}%).
+                  soal ({finalScore}%).{' '}
+                  {!passed && 'Jawab semua soal dengan benar untuk menyelesaikan misi ini.'}
                 </p>
               </div>
+
+              {!passed && wrongQuestions.length > 0 && (
+                <div className="max-w-md mx-auto bg-rose-950/35 border border-rose-500/40 rounded-xl p-3 text-left space-y-1">
+                  <p className="text-xs font-bold text-rose-300">
+                    Soal yang perlu diperbaiki ({wrongQuestions.length}):
+                  </p>
+                  <p className="text-xs text-rose-100">
+                    Nomor soal:{' '}
+                    <span className="font-mono-num font-bold">
+                      {wrongQuestions.map((w) => `#${w.number}`).join(', ')}
+                    </span>
+                  </p>
+                </div>
+              )}
 
               <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
                 <button
                   onClick={handleRetry}
-                  className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs md:text-sm font-semibold cursor-pointer"
+                  className={`min-h-[44px] flex items-center gap-1.5 px-5 py-2.5 rounded-xl text-xs md:text-sm font-bold cursor-pointer ${
+                    passed
+                      ? 'bg-slate-800 hover:bg-slate-700 text-slate-200'
+                      : 'bg-amber-400 hover:bg-amber-300 text-slate-950 font-display shadow-lg shadow-amber-500/20'
+                  }`}
                 >
                   <RotateCcw className="w-4 h-4" />
-                  Coba Lagi
+                  Ulangi Kuis
                 </button>
+                {!passed && (
+                  <button
+                    onClick={() => {
+                      soundEngine.playClick();
+                      onClose();
+                    }}
+                    className="min-h-[44px] px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs md:text-sm font-semibold cursor-pointer"
+                  >
+                    Tutup
+                  </button>
+                )}
                 {passed && (
                   <button
                     onClick={handleConfirmFinish}
-                    className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-display font-bold text-xs md:text-sm cursor-pointer shadow-lg shadow-emerald-500/20"
+                    className="min-h-[44px] flex items-center gap-2 px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-display font-bold text-xs md:text-sm cursor-pointer shadow-lg shadow-emerald-500/20"
                   >
                     <Award className="w-4 h-4" />
                     SIMPAN &amp; PULIHKAN MODUL

@@ -134,31 +134,82 @@ export type CharacterAnimState =
 
 export type EmoteId =
   | 'wave'
+  | 'bow'
+  | 'salute'
   | 'clap'
   | 'thumbs_up'
   | 'heart'
   | 'laugh'
   | 'sad'
   | 'surprised'
-  | 'dance'
+  | 'shrug'
+  | 'think'
   | 'celebrate'
-  | 'think';
+  | 'cheer'
+  | 'flex'
+  | 'spin'
+  | 'dance'
+  | 'kpop_groove'
+  | 'star_hop';
+
+export type EmoteCategory =
+  | 'sapaan'
+  | 'reaksi'
+  | 'ekspresi'
+  | 'selebrasi'
+  | 'lucu'
+  | 'dance';
 
 export interface EmoteDef {
   id: EmoteId;
   emoji: string;
   label: string;
+  category: EmoteCategory;
   durationMs: number;
   accentHex: string;
+  isStarter?: boolean;
+  requiredChapter?: ChapterId;
+  unlockType?: 'starter' | 'chapter' | 'secret_tv';
+  unlockLabel?: string;
+}
+
+export interface MusicSearchResult {
+  trackId: string;
+  title: string;
+  artist: string;
+  album: string;
+  artworkUrl: string;
+  previewUrl: string;
+  durationMs: number;
+}
+
+export type RankingCategory = 'fastest' | 'items' | 'emotes';
+
+export interface RankingEntry {
+  playerKey: string;
+  playerName: string;
+  bestCompletionMs: number | null;
+  unlockedItemCount: number;
+  unlockedItemIds: string[];
+  unlockedEmoteCount: number;
+  unlockedEmoteIds: EmoteId[];
+  achievedAt: number;
+  updatedAt: number;
+}
+
+export interface RankingsResponse {
+  fastest: RankingEntry[];
+  items: RankingEntry[];
+  emotes: RankingEntry[];
 }
 
 export type GraphicsQuality = 'low' | 'medium' | 'high';
 
 export type MusicTrackId =
   | 'cosmic_drift'
-  | 'nebula_pulse'
-  | 'orbit_lofi'
-  | 'starlight_house'
+  | 'nusantara_gamelan'
+  | 'seoul_neon'
+  | 'western_sunset'
   | 'tension_protocol';
 
 export interface GameSettings {
@@ -168,6 +219,7 @@ export interface GameSettings {
   musicTrack?: MusicTrackId;
   musicPaused?: boolean;
   musicMuted?: boolean;
+  selectedExternalTrack?: MusicSearchResult | null;
   voiceEnabled?: boolean;
   voiceVolume?: number; // 0..1
   cameraSensitivity: number; // 0.3..2.0
@@ -243,22 +295,36 @@ export type NpcCharacterId = 'rex' | 'bima' | 'fuzzy' | 'bob' | 'ratu_laras';
 export interface CutsceneLine {
   speaker: string;
   roleTitle: string;
-  speakerId: NpcCharacterId | 'player' | 'narrator';
+  speakerId: NpcCharacterId | 'player' | 'narrator' | 'companion';
   colorHex: string;
   text: string;
-  emotion?: 'confident' | 'thoughtful' | 'inspiring' | 'serious' | 'curious';
-  gesture?: 'explain' | 'point' | 'nod' | 'ponder' | 'gearup' | 'scratch_head' | 'tilt_curious';
+  emotion?: 'confident' | 'thoughtful' | 'inspiring' | 'serious' | 'curious' | 'panic';
+  gesture?:
+    | 'explain'
+    | 'point'
+    | 'nod'
+    | 'ponder'
+    | 'gearup'
+    | 'scratch_head'
+    | 'tilt_curious'
+    | 'panic';
   cameraFocus?:
     | 'wide'
     | 'npc'
     | 'player'
+    | 'companion'
     | 'hologram'
     | 'space'
     | 'shuttle'
     | 'sparkle_spot'
     | 'sparkle_follow'
     | 'sparkle_book';
-  scenePhase?: 'sparkle_spot' | 'sparkle_follow' | 'sparkle_book';
+  scenePhase?:
+    | 'companion_panic'
+    | 'companion_leave'
+    | 'sparkle_spot'
+    | 'sparkle_follow'
+    | 'sparkle_book';
 }
 
 export interface CutsceneScript {
@@ -434,18 +500,32 @@ export interface SaveState {
   totalExp: number;
   endingSeen: boolean;
   prologSeen: boolean;
+  tutorialSeen?: boolean;
   readBooks?: TheoryBookId[];
   readBooksByPlayer?: Record<string, TheoryBookId[]>;
   lockedCompletedRooms?: RoomId[];
   activeCutsceneCheckpoint?: CutsceneCheckpoint | null;
   pendingRewardChapter?: ChapterId | null;
   chapterProgress?: Record<ChapterId, ChapterProgressState>;
+  metNpcs?: NpcCharacterId[];
+  unlockedEmotes?: EmoteId[];
+  secretTvCompleted?: boolean;
+  replayMode?: boolean;
+  runStartedAt?: number | null;
+  bestCompletionMs?: number | null;
+  pendingRankingSync?: boolean;
 }
 
 // --- MULTIPLAYER TYPES ---
 export type MultiplayerRole = 'crewmate' | 'impostor';
 export type MultiplayerPhase = 'lobby' | 'playing' | 'meeting' | 'ended';
-export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
+export type ConnectionStatus =
+  | 'disconnected'
+  | 'connecting'
+  | 'connected'
+  | 'reconnecting'
+  | 'failed'
+  | 'offline';
 
 export interface VoicePeerState {
   micOn: boolean;

@@ -54,6 +54,7 @@ export interface HudLiveState {
   cameraYaw: number;
   currentRoomId: RoomId | null;
   currentRoomName: string;
+  isTouchDevice: boolean;
   nearbyTerminal: {
     roomId: RoomId;
     missionId?: MissionId;
@@ -148,18 +149,145 @@ const _rayOrigin = new THREE.Vector3();
 const _rayDir = new THREE.Vector3();
 const _ray = new THREE.Ray();
 const _hitPoint = new THREE.Vector3();
-const _losRaycaster = new THREE.Raycaster();
-const _losTarget = new THREE.Vector3();
+const _hoverRaycaster = new THREE.Raycaster();
+const _hoverNdc = new THREE.Vector2();
+const _csCandidate = new THREE.Vector3();
+const _csBaseCam = new THREE.Vector3();
+const _csActorHead = new THREE.Vector3();
+const _csExtraHead = new THREE.Vector3();
+const _csBestCandidate = new THREE.Vector3();
 const _tmpColor = new THREE.Color();
 const _doneSet = new Set<MissionId>();
 const _readBookSet = new Set<TheoryBookId>();
-const _hiddenCutsceneObjects = new Set<THREE.Object3D>();
 const _sparklePos = new THREE.Vector3();
+
+const CS_ORBIT_ANGLES_RAD = [
+  0,
+  0.38,
+  -0.38,
+  0.78,
+  -0.78,
+  1.22,
+  -1.22,
+  1.65,
+  -1.65,
+  2.2,
+  -2.2,
+];
 
 // Pre-built camera occlusion AABBs for station furniture so camera raycast avoids clipping props
 const PROP_CAM_BOXES: THREE.Box3[] = PROP_COLLIDERS.map(
   (p) => new THREE.Box3(new THREE.Vector3(p.minX, 0, p.minZ), new THREE.Vector3(p.maxX, 2.35, p.maxZ))
 );
+
+function isSegmentClearOfOccluders(
+  from: THREE.Vector3,
+  to: THREE.Vector3,
+  wallBoxes: THREE.Box3[]
+): { clear: boolean; clearDist: number; fullDist: number } {
+  _rayDir.subVectors(to, from);
+  const fullDist = _rayDir.length();
+  if (fullDist <= 0.15) return { clear: true, clearDist: fullDist, fullDist };
+  _rayDir.normalize();
+  _ray.set(from, _rayDir);
+  let minHit = fullDist;
+
+  for (let i = 0; i < wallBoxes.length; i++) {
+    const hit = _ray.intersectBox(wallBoxes[i], _hitPoint);
+    if (hit) {
+      const d = from.distanceTo(hit);
+      if (d > 0.25 && d < minHit) minHit = d;
+    }
+  }
+  for (let i = 0; i < PROP_CAM_BOXES.length; i++) {
+    const hit = _ray.intersectBox(PROP_CAM_BOXES[i], _hitPoint);
+    if (hit) {
+      const d = from.distanceTo(hit);
+      if (d > 0.35 && d < minHit) minHit = d;
+    }
+  }
+  return { clear: minHit >= fullDist - 0.08, clearDist: minHit, fullDist };
+}
+
+function isCameraPointObstructed(pt: THREE.Vector3, wallBoxes: THREE.Box3[]): boolean {
+  for (let i = 0; i < wallBoxes.length; i++) {
+    if (wallBoxes[i].containsPoint(pt)) return true;
+  }
+  for (let i = 0; i < PROP_CAM_BOXES.length; i++) {
+    if (PROP_CAM_BOXES[i].containsPoint(pt)) return true;
+  }
+  return false;
+}
+
+function resolveCollisionFreeCutsceneCamera(
+  actorPos: THREE.Vector3,
+  idealCam: THREE.Vector3,
+  wallBoxes: THREE.Box3[],
+  outCam: THREE.Vector3,
+  extraActorPos?: THREE.Vector3
+) {
+  _csActorHead.set(actorPos.x, 1.38, actorPos.z);
+  const dx = idealCam.x - actorPos.x;
+  const dz = idealCam.z - actorPos.z;
+  const baseRadius = Math.hypot(dx, dz);
+  const baseAngle = Math.atan2(dx, dz);
+  const baseY = THREE.MathUtils.clamp(idealCam.y, 1.45, 3.65);
+
+  if (baseRadius < 0.2) {
+    outCam.copy(idealCam);
+    return;
+  }
+
+  let bestScore = -1;
+  _csBestCandidate.copy(idealCam);
+
+  for (let pass = 0; pass < 2; pass++) {
+    const radiusScale = pass === 0 ? 1.0 : 0.78;
+    const heightBump = pass === 0 ? 0 : 0.35;
+    const r = Math.max(1.85, baseRadius * radiusScale);
+
+    for (let i = 0; i < CS_ORBIT_ANGLES_RAD.length; i++) {
+      const ang = baseAngle + CS_ORBIT_ANGLES_RAD[i];
+      _csCandidate.set(
+        actorPos.x + Math.sin(ang) * r,
+        THREE.MathUtils.clamp(baseY + heightBump, 1.45, 3.72),
+        actorPos.z + Math.cos(ang) * r
+      );
+
+      if (isCameraPointObstructed(_csCandidate, wallBoxes)) continue;
+
+      const primaryLos = isSegmentClearOfOccluders(_csActorHead, _csCandidate, wallBoxes);
+      let extraClear = true;
+      let minRatio = primaryLos.clearDist / Math.max(0.1, primaryLos.fullDist);
+
+      if (extraActorPos) {
+        _csExtraHead.set(extraActorPos.x, 1.38, extraActorPos.z);
+        const extraLos = isSegmentClearOfOccluders(_csExtraHead, _csCandidate, wallBoxes);
+        extraClear = extraLos.clear;
+        minRatio = Math.min(minRatio, extraLos.clearDist / Math.max(0.1, extraLos.fullDist));
+      }
+
+      if (primaryLos.clear && extraClear) {
+        outCam.copy(_csCandidate);
+        return;
+      }
+
+      if (minRatio > bestScore) {
+        bestScore = minRatio;
+        _csBestCandidate.copy(_csCandidate);
+      }
+    }
+  }
+
+  // Fallback: pull camera cleanly along the best unobstructed ray
+  const fallbackLos = isSegmentClearOfOccluders(_csActorHead, _csBestCandidate, wallBoxes);
+  if (fallbackLos.clearDist < fallbackLos.fullDist) {
+    _rayDir.subVectors(_csBestCandidate, _csActorHead).normalize();
+    outCam.copy(_csActorHead).addScaledVector(_rayDir, Math.max(1.65, fallbackLos.clearDist - 0.35));
+  } else {
+    outCam.copy(_csBestCandidate);
+  }
+}
 
 const PROLOG_SPOT_PATH = [
   { x: 0, z: 3.0 },
@@ -440,6 +568,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   const prologLineKeyRef = useRef('');
   const prologLineElapsedRef = useRef(0);
   const prevActiveCutsceneRef = useRef<CutsceneCharacterId | null>(null);
+  const postCutsceneGlideUntilRef = useRef(0);
   const interactAnimUntilRef = useRef(0);
   const ventOutAnimUntilRef = useRef(0);
 
@@ -449,6 +578,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   const nearbyBookDistRef = useRef(Infinity);
   const nearbyVentRef = useRef<HudLiveState['nearbyVent']>(null);
   const nearbyPodRef = useRef<HudLiveState['nearbyStasisPod']>(null);
+  const isTouchDeviceRef = useRef(
+    typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0)
+  );
+  const hoveredTargetRef = useRef<{ type: 'book' | 'terminal' | 'vent'; id: string } | null>(null);
 
   const localSpeakingRef = useRef(localSpeaking);
   localSpeakingRef.current = localSpeaking;
@@ -791,6 +924,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       if (sparkleGuideRef.current) {
         sparkleGuideRef.current.update(_sparklePos, 0, 0);
       }
+      if (prevCs) {
+        postCutsceneGlideUntilRef.current = performance.now() + 750;
+      }
       if (prevCs === 'prolog') {
         playerPosRef.current.set(-35.4, 0, 3.25);
         lastSafePosRef.current = { x: -35.4, z: 3.25 };
@@ -1061,28 +1197,78 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       keys[e.code] = false;
     };
 
-    // Unified PointerEvent 360° camera drag + multi-touch support (never conflicts with left joystick!)
+    // Unified PointerEvent 360° camera drag + multi-touch support + throttled hover/tap interactable detection
     const dom = renderer.domElement;
     dom.style.touchAction = 'none';
-    const activePointers = new Map<number, { x: number; y: number }>();
+    const activePointers = new Map<number, { x: number; y: number; downX: number; downY: number }>();
     let prevPinchDist: number | null = null;
+    let lastHoverCheckMs = 0;
+
+    const updateHoveredInteractable = (clientX: number, clientY: number) => {
+      if (activeCutsceneRef.current || isPausedRef.current || activeTheoryBookRef.current) {
+        hoveredTargetRef.current = null;
+        dom.style.cursor = 'default';
+        return;
+      }
+      const rect = dom.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      _hoverNdc.set(
+        ((clientX - rect.left) / rect.width) * 2 - 1,
+        -((clientY - rect.top) / rect.height) * 2 + 1
+      );
+      _hoverRaycaster.setFromCamera(_hoverNdc, camera);
+      const hits = _hoverRaycaster.intersectObjects(world.interactHitMeshes, false);
+      let nextHover: { type: 'book' | 'terminal' | 'vent'; id: string } | null = null;
+      if (hits.length > 0 && hits[0].distance < 22) {
+        const ud = hits[0].object.userData as {
+          interactType?: 'book' | 'terminal' | 'vent';
+          bookId?: string;
+          roomId?: RoomId;
+          ventId?: string;
+        };
+        if (ud.interactType === 'book' && ud.bookId) {
+          nextHover = { type: 'book', id: ud.bookId };
+        } else if (ud.interactType === 'terminal' && ud.roomId) {
+          nextHover = { type: 'terminal', id: ud.roomId };
+        } else if (ud.interactType === 'vent' && ud.ventId) {
+          nextHover = { type: 'vent', id: ud.ventId };
+        }
+      }
+      hoveredTargetRef.current = nextHover;
+      dom.style.cursor = nextHover ? 'pointer' : 'grab';
+    };
 
     const onContextMenu = (e: MouseEvent) => e.preventDefault();
     const onPointerDown = (e: PointerEvent) => {
+      isTouchDeviceRef.current = e.pointerType === 'touch';
       if (e.pointerType === 'mouse' && e.button !== 0 && e.button !== 2) return;
       try {
         dom.setPointerCapture(e.pointerId);
       } catch {
         // ignore synthetic event capture failures
       }
-      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY, downX: e.clientX, downY: e.clientY });
       if (activePointers.size === 2) {
         const pts = Array.from(activePointers.values());
         prevPinchDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
       }
     };
     const onPointerMove = (e: PointerEvent) => {
-      if (!activePointers.has(e.pointerId) || activeCutsceneRef.current || isPausedRef.current) return;
+      if (e.pointerType === 'touch') isTouchDeviceRef.current = true;
+      else if (e.pointerType === 'mouse') isTouchDeviceRef.current = false;
+
+      if (!activePointers.has(e.pointerId)) {
+        if (e.pointerType === 'mouse') {
+          const now = performance.now();
+          if (now - lastHoverCheckMs > 55) {
+            lastHoverCheckMs = now;
+            updateHoveredInteractable(e.clientX, e.clientY);
+          }
+        }
+        return;
+      }
+
+      if (activeCutsceneRef.current || isPausedRef.current) return;
       const prev = activePointers.get(e.pointerId)!;
       if (activePointers.size === 1) {
         const dx = e.clientX - prev.x;
@@ -1091,9 +1277,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         const sens = baseSens * settingsRef.current.cameraSensitivity;
         camYawRef.current -= dx * sens;
         camPitchRef.current = THREE.MathUtils.clamp(camPitchRef.current + dy * sens, 0.16, 1.15);
-        activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY, downX: prev.downX, downY: prev.downY });
       } else if (activePointers.size >= 2) {
-        activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY, downX: prev.downX, downY: prev.downY });
         const pts = Array.from(activePointers.values());
         const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
         if (prevPinchDist !== null) {
@@ -1104,8 +1290,41 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       }
     };
     const onPointerUp = (e: PointerEvent) => {
+      const prev = activePointers.get(e.pointerId);
       activePointers.delete(e.pointerId);
       if (activePointers.size < 2) prevPinchDist = null;
+
+      // Tap / click directly on an in-range interactable 3D object triggers interaction
+      if (
+        prev &&
+        !activeCutsceneRef.current &&
+        !isPausedRef.current &&
+        !activeTheoryBookRef.current &&
+        Math.hypot(e.clientX - prev.downX, e.clientY - prev.downY) < 9
+      ) {
+        updateHoveredInteractable(e.clientX, e.clientY);
+        const hit = hoveredTargetRef.current;
+        if (hit?.type === 'book' && nearbyBookRef.current?.id === hit.id && onInteractBookRef.current) {
+          soundEngine.playInteract();
+          interactAnimUntilRef.current = performance.now() + 450;
+          onInteractBookRef.current(nearbyBookRef.current.id);
+        } else if (hit?.type === 'terminal' && nearbyTerminalRef.current?.roomId === hit.id) {
+          soundEngine.playInteract();
+          interactAnimUntilRef.current = performance.now() + 550;
+          onInteractRef.current(
+            nearbyTerminalRef.current.roomId,
+            nearbyTerminalRef.current.missionId
+          );
+        } else if (hit?.type === 'vent' && nearbyVentRef.current?.id === hit.id && onInteractVentRef.current && amAliveRef.current) {
+          soundEngine.playInteract();
+          interactAnimUntilRef.current = performance.now() + 450;
+          onInteractVentRef.current(nearbyVentRef.current.id);
+        }
+      }
+    };
+    const onPointerLeave = () => {
+      hoveredTargetRef.current = null;
+      dom.style.cursor = 'default';
     };
     const onWheel = (e: WheelEvent) => {
       if (activeCutsceneRef.current || isPausedRef.current) return;
@@ -1120,6 +1339,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     dom.addEventListener('pointermove', onPointerMove);
     dom.addEventListener('pointerup', onPointerUp);
     dom.addEventListener('pointercancel', onPointerUp);
+    dom.addEventListener('pointerleave', onPointerLeave);
     dom.addEventListener('wheel', onWheel, { passive: false });
 
     const onResize = () => {
@@ -1176,14 +1396,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       const cs = activeCutsceneRef.current;
       const csLine = activeCutsceneLineRef.current;
       let animState: CharacterAnimState = 'idle';
-
-      // Restore any furniture hidden during previous cutscene frame
-      if (_hiddenCutsceneObjects.size > 0) {
-        _hiddenCutsceneObjects.forEach((obj) => {
-          obj.visible = true;
-        });
-        _hiddenCutsceneObjects.clear();
-      }
 
       // 1. Local Player Movement, Sprint & Blocked-Door Notification
       const lockedBoxes = isMultiplayerRef.current ? undefined : lockedDoorCollidersRef.current;
@@ -1591,11 +1803,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         if (door.lockVisualState !== nextLockVisual) {
           door.lockVisualState = nextLockVisual;
           if (nextLockVisual === 'none') {
-            door.lockSprite.visible = false;
+            door.lockBadgeGroup.visible = false;
           } else {
-            door.lockSpriteMat.map = getDoorLockBadgeTexture(nextLockVisual);
-            door.lockSpriteMat.needsUpdate = true;
-            door.lockSprite.visible = true;
+            door.lockBadgeMat.map = getDoorLockBadgeTexture(nextLockVisual);
+            door.lockBadgeMat.needsUpdate = true;
+            door.lockBadgeGroup.visible = true;
           }
         }
 
@@ -1630,7 +1842,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       // 5. Physical Vents Hinged Lid Animation & Proximity
       let foundVent: HudLiveState['nearbyVent'] = null;
       let bestVentDist = 2.6;
-      world.vents.forEach((ventObj) => {
+      for (let i = 0; i < world.vents.length; i++) {
+        const ventObj = world.vents[i];
         const d = Math.hypot(pPos.x - ventObj.x, pPos.z - ventObj.z);
         const isNear = d < 2.6 && !cs;
         ventObj.openProgress = THREE.MathUtils.damp(ventObj.openProgress, isNear || inVentRef.current ? 1 : 0, 9, dt);
@@ -1642,7 +1855,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             foundVent = { id: vDef.id, label: vDef.label, roomId: vDef.roomId };
           }
         }
-      });
+      }
       nearbyVentRef.current = foundVent;
 
       // 6. Adaptive Distance Culling, Micro-Prop LOD, Dynamic Local Lights, Spinners & Terminals
@@ -1738,34 +1951,42 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
       for (let i = 0; i < world.terminals.length; i++) {
         const term = world.terminals[i];
+        const termRoom = ROOMS[term.roomId];
+        const isTermCompLocked = !isMp && completedLockedRoomSetRef.current.has(term.roomId);
+        const isTermChapLocked =
+          !isMp &&
+          ((termRoom?.chapter !== undefined && termRoom.chapter > curUnlockedChap) ||
+            (term.roomId === 'earth_observation_room' && completedChaptersCountRef.current < 5));
+        let outlineColorHex = 0x38bdf8;
+
         if (term.missionId) {
           const isDone = _doneSet.has(term.missionId);
           const isInProgress = !isMp && inProgRoom === term.roomId;
           const meta = MISSION_META[term.missionId];
           const booksReady = areRequiredBooksRead(term.missionId, rbArr);
           if (isInProgress) {
-            // Active/in-progress room mission pulses blue
             term.beaconMat.color.setHex(0x38bdf8);
             term.beaconMat.emissive.setHex(0x0ea5e9);
             term.beaconMat.emissiveIntensity = 1.45 + Math.sin(elapsed * 5.2) * 0.45;
+            outlineColorHex = 0x38bdf8;
           } else if (isDone) {
             term.beaconMat.color.setHex(0x10b981);
             term.beaconMat.emissive.setHex(0x10b981);
             term.beaconMat.emissiveIntensity = 1.15;
+            outlineColorHex = 0x34d399;
           } else if (isMp || meta.chapter <= curUnlockedChap) {
             if (booksReady) {
-              // Books read — quiz unlocked! Bright glowing cyan-teal beacon
               term.beaconMat.color.setHex(0x22d3ee);
               term.beaconMat.emissive.setHex(0x06b6d4);
               term.beaconMat.emissiveIntensity = 1.35 + Math.sin(elapsed * 4.0) * 0.35;
+              outlineColorHex = 0x38bdf8;
             } else {
-              // Books unread — quiz locked until Selesai Membaca
               term.beaconMat.color.setHex(0xd97706);
               term.beaconMat.emissive.setHex(0xb45309);
               term.beaconMat.emissiveIntensity = 0.6;
+              outlineColorHex = 0xfbbf24;
             }
           } else {
-            // Chapter locked
             term.beaconMat.color.setHex(0x64748b);
             term.beaconMat.emissive.setHex(0x334155);
             term.beaconMat.emissiveIntensity = 0.55;
@@ -1775,6 +1996,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             term.beaconMat.color.setHex(0xfacc15);
             term.beaconMat.emissive.setHex(0xeab308);
             term.beaconMat.emissiveIntensity = 1.4;
+            outlineColorHex = 0xfacc15;
           } else {
             term.beaconMat.color.setHex(0x475569);
             term.beaconMat.emissive.setHex(0x1e293b);
@@ -1782,7 +2004,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           }
         }
         const d = Math.hypot(pPos.x - term.position.x, pPos.z - term.position.z);
-        if (d < bestTermDist) {
+        if (d < bestTermDist && !isTermCompLocked && !isTermChapLocked) {
           bestTermDist = d;
           const roomDef = ROOMS[term.roomId];
           foundTerminal = {
@@ -1791,9 +2013,34 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             label: roomDef.terminalLabel,
           };
         }
+
+        const modalsClosed = !isPausedRef.current && !cs && !activeBookId;
+        const isTermHovered =
+          hoveredTargetRef.current?.type === 'terminal' && hoveredTargetRef.current.id === term.roomId;
+        const isTermNear = d < 3.2;
+        const showTermOutline = modalsClosed && !isTermCompLocked && !isTermChapLocked && (isTermNear || isTermHovered);
+        term.outlineGroup.visible = showTermOutline;
+        if (showTermOutline) {
+          term.outlineMat.color.setHex(outlineColorHex);
+          term.outlineRingMat.color.setHex(outlineColorHex);
+          term.outlineRingMat.opacity = 0.48 + Math.sin(elapsed * 4.5) * 0.18;
+        }
       }
       nearbyTerminalRef.current = foundTerminal;
       nearbyTermDistRef.current = bestTermDist;
+
+      // Update Vent Outlines ONLY when unlocked and within range or hovered
+      for (let i = 0; i < world.vents.length; i++) {
+        const ventObj = world.vents[i];
+        const vDef = VENTS.find((v) => v.id === ventObj.id);
+        const ventRoomLocked = !isMp && Boolean(vDef && completedLockedRoomSetRef.current.has(vDef.roomId));
+        const canUseVent = !isMp || (myRoleRef.current === 'impostor' && amAliveRef.current);
+        const isVentHovered =
+          hoveredTargetRef.current?.type === 'vent' && hoveredTargetRef.current.id === ventObj.id;
+        const isVentNear = foundVent?.id === ventObj.id;
+        ventObj.outlineGroup.visible =
+          !isPausedRef.current && !cs && !activeBookId && canUseVent && !ventRoomLocked && (isVentNear || isVentHovered);
+      }
 
       // Interactive 3D Theory Books Proximity, Glowing Halo Status & Unread Book Starlight Sparkles
       let foundBook: HudLiveState['nearbyBook'] = null;
@@ -1838,17 +2085,32 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           tb.sparkles.position.y = Math.sin(elapsed * 2.2 + i) * 0.05;
         }
 
-        if (!cs) {
-          const d = Math.hypot(pPos.x - tb.position.x, pPos.z - tb.position.z);
-          if (d < bestBookDist) {
-            bestBookDist = d;
-            const bDef = THEORY_BOOK_MAP[tb.id];
-            foundBook = {
-              id: tb.id,
-              title: bDef.title,
-              topicLabel: bDef.topicLabel,
-            };
-          }
+        const d = Math.hypot(pPos.x - tb.position.x, pPos.z - tb.position.z);
+        if (!cs && !isRoomCompLocked && !isRoomChapLocked && d < bestBookDist) {
+          bestBookDist = d;
+          const bDef = THEORY_BOOK_MAP[tb.id];
+          foundBook = {
+            id: tb.id,
+            title: bDef.title,
+            topicLabel: bDef.topicLabel,
+          };
+        }
+
+        const isBookHovered =
+          hoveredTargetRef.current?.type === 'book' && hoveredTargetRef.current.id === tb.id;
+        const showBookOutline =
+          !isPausedRef.current &&
+          !cs &&
+          !activeBookId &&
+          !isRoomCompLocked &&
+          !isRoomChapLocked &&
+          (d < 2.75 || isBookHovered);
+        tb.outlineGroup.visible = showBookOutline;
+        if (showBookOutline) {
+          const bookOutlineHex = isRead ? 0x34d399 : 0xfbbf24;
+          tb.outlineMat.color.setHex(bookOutlineHex);
+          tb.outlineRingMat.color.setHex(bookOutlineHex);
+          tb.outlineRingMat.opacity = 0.55 + Math.sin(elapsed * 4.8) * 0.2;
         }
       }
       nearbyBookRef.current = foundBook;
@@ -1887,11 +2149,17 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         });
       }
 
-      // 7. Dynamic Cutscene Camera Choreography + LOS Occlusion Guard OR 360° Free-Look Camera
+      // 7. Dynamic Cutscene Camera Choreography (Full-Body Framing Above Subtitles + Furniture-Aware Collision Solver)
       if (cs) {
         const focus = csLine?.cameraFocus || 'wide';
         const speakerNpc = npcRigsRef.current.find((n) => n.id === csLine?.speakerId)?.rig.root.position;
         const firstNpc = npcRigsRef.current[0]?.rig.root.position;
+        const vpH = container.clientHeight || window.innerHeight;
+        const isShortLandscape = camera.aspect > 1.72 || vpH < 500;
+        // Slightly lower target Y raises character cleanly into upper-center above bottom dialogue UI without clipping head
+        const charTargetY = isShortLandscape ? 0.96 : 1.12;
+        const wideTargetY = isShortLandscape ? 0.94 : 1.08;
+        const wideDistBoost = isShortLandscape ? 1.25 : 1.0;
 
         if (cs === 'prolog') {
           if (focus === 'space') {
@@ -1902,23 +2170,26 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             _camTarget.set(sh.x, sh.y, sh.z);
             _desiredCamPos.set(sh.x + 6.5, sh.y + 3.0, sh.z + 8.5);
           } else if (focus === 'player') {
-            _camTarget.set(pPos.x, 1.38, pPos.z);
-            _desiredCamPos.set(pPos.x + 1.9, 1.85, pPos.z + 2.4);
+            _camTarget.set(pPos.x, charTargetY, pPos.z);
+            _csBaseCam.set(pPos.x + 2.3 * wideDistBoost, 1.9, pPos.z + 2.9 * wideDistBoost);
+            resolveCollisionFreeCutsceneCamera(pPos, _csBaseCam, world.wallBoxes, _desiredCamPos);
           } else if (focus === 'hologram') {
-            _camTarget.set(0, 1.7, 0);
-            _desiredCamPos.set(3.4, 2.35, 4.3);
+            _camTarget.set(0, 1.5, 0);
+            _desiredCamPos.set(3.8, 2.35, 4.7);
           } else if (focus === 'sparkle_spot') {
             if (prologLineElapsedRef.current < 1.55) {
-              _camTarget.set(pPos.x - 1.6, 1.35, pPos.z * 0.45);
-              _desiredCamPos.set(pPos.x + 2.5, 2.25, pPos.z + 2.1);
+              _camTarget.set(pPos.x - 1.2, charTargetY, pPos.z * 0.45);
+              _csBaseCam.set(pPos.x + 2.9, 2.25, pPos.z + 2.5);
+              resolveCollisionFreeCutsceneCamera(pPos, _csBaseCam, world.wallBoxes, _desiredCamPos);
             } else {
-              _camTarget.set(-9.6, 1.38, 0.08);
-              _desiredCamPos.set(-2.2, 2.05, 1.7);
+              _camTarget.set(-9.6, 1.25, 0.08);
+              _desiredCamPos.set(-1.8, 2.1, 1.9);
             }
           } else if (focus === 'sparkle_follow') {
             if (prologLineElapsedRef.current >= 4.4) {
-              _camTarget.set(-35.4, 1.15, 4.2);
-              _desiredCamPos.set(-33.1, 1.92, 1.85);
+              _camTarget.set(-35.4, 1.0, 4.1);
+              _csBaseCam.set(-32.8, 2.05, 1.55);
+              resolveCollisionFreeCutsceneCamera(pPos, _csBaseCam, world.wallBoxes, _desiredCamPos);
             } else {
               const vx = _sparklePos.x - pPos.x;
               const vz = _sparklePos.z - pPos.z;
@@ -1928,159 +2199,122 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
               const rx = -fz;
               const rz = fx;
               _camTarget.set(
-                THREE.MathUtils.lerp(pPos.x, _sparklePos.x, 0.4),
-                1.3,
-                THREE.MathUtils.lerp(pPos.z, _sparklePos.z, 0.4)
+                THREE.MathUtils.lerp(pPos.x, _sparklePos.x, 0.35),
+                1.05,
+                THREE.MathUtils.lerp(pPos.z, _sparklePos.z, 0.35)
               );
-              _desiredCamPos.set(
-                pPos.x - fx * 3.1 + rx * 0.65,
+              _csBaseCam.set(
+                pPos.x - fx * 3.4 + rx * 0.85,
                 2.05,
-                pPos.z - fz * 3.1 + rz * 0.65
+                pPos.z - fz * 3.4 + rz * 0.85
               );
+              resolveCollisionFreeCutsceneCamera(pPos, _csBaseCam, world.wallBoxes, _desiredCamPos);
             }
           } else if (focus === 'sparkle_book') {
-            _camTarget.set(-35.4, 1.05, 4.25);
-            _desiredCamPos.set(-33.35, 1.82, 2.35);
+            _camTarget.set(-35.4, 0.96, 4.1);
+            _csBaseCam.set(-32.95, 1.95, 1.95);
+            resolveCollisionFreeCutsceneCamera(pPos, _csBaseCam, world.wallBoxes, _desiredCamPos);
           } else {
-            _camTarget.set(0, 1.3, 0.8);
-            _desiredCamPos.set(-4.2, 3.0, 5.4);
+            _camTarget.set(0, wideTargetY, 0.8);
+            _csBaseCam.set(-4.6, 2.95, 5.8);
+            resolveCollisionFreeCutsceneCamera(pPos, _csBaseCam, world.wallBoxes, _desiredCamPos);
           }
         } else if (cs === 'rex') {
           if (focus === 'player') {
-            _camTarget.set(pPos.x, 1.38, pPos.z);
-            _desiredCamPos.set(-36.0, 1.95, 2.55);
+            _camTarget.set(pPos.x, charTargetY, pPos.z);
+            _csBaseCam.set(-36.4, 2.0, 4.2 * wideDistBoost);
+            resolveCollisionFreeCutsceneCamera(pPos, _csBaseCam, world.wallBoxes, _desiredCamPos);
           } else if (focus === 'npc' && firstNpc) {
-            _camTarget.set(firstNpc.x, 1.38, firstNpc.z);
-            _desiredCamPos.set(-32.8, 1.95, 2.55);
+            _camTarget.set(firstNpc.x, charTargetY, firstNpc.z);
+            _csBaseCam.set(-32.2, 2.0, 4.1 * wideDistBoost);
+            resolveCollisionFreeCutsceneCamera(firstNpc, _csBaseCam, world.wallBoxes, _desiredCamPos);
           } else if (focus === 'hologram') {
-            _camTarget.set(-35.7, 1.5, 0);
-            _desiredCamPos.set(-32.6, 2.45, 2.8);
+            _camTarget.set(-35.7, 1.4, 0);
+            _csBaseCam.set(-32.2, 2.45, 3.2);
+            resolveCollisionFreeCutsceneCamera(_camTarget, _csBaseCam, world.wallBoxes, _desiredCamPos);
           } else {
-            _camTarget.set(-34.2, 1.35, 2.2);
-            _desiredCamPos.set(-34.2, 2.25, 3.7);
+            _camTarget.set(-34.2, wideTargetY, 2.35);
+            _csBaseCam.set(-34.2, 2.25, 4.95 * wideDistBoost);
+            resolveCollisionFreeCutsceneCamera(_camTarget, _csBaseCam, world.wallBoxes, _desiredCamPos, firstNpc);
           }
         } else if (cs === 'bima') {
           if (focus === 'player') {
-            _camTarget.set(pPos.x, 1.38, pPos.z);
-            _desiredCamPos.set(36.0, 1.95, -2.55);
+            _camTarget.set(pPos.x, charTargetY, pPos.z);
+            _csBaseCam.set(36.4, 2.0, -4.2 * wideDistBoost);
+            resolveCollisionFreeCutsceneCamera(pPos, _csBaseCam, world.wallBoxes, _desiredCamPos);
           } else if (focus === 'npc' && firstNpc) {
-            _camTarget.set(firstNpc.x, 1.38, firstNpc.z);
-            _desiredCamPos.set(32.8, 1.95, -2.55);
+            _camTarget.set(firstNpc.x, charTargetY, firstNpc.z);
+            _csBaseCam.set(32.2, 2.0, -4.1 * wideDistBoost);
+            resolveCollisionFreeCutsceneCamera(firstNpc, _csBaseCam, world.wallBoxes, _desiredCamPos);
           } else if (focus === 'hologram') {
-            _camTarget.set(35.7, 1.5, 0);
-            _desiredCamPos.set(32.6, 2.45, -2.8);
+            _camTarget.set(35.7, 1.4, 0);
+            _csBaseCam.set(32.2, 2.45, -3.2);
+            resolveCollisionFreeCutsceneCamera(_camTarget, _csBaseCam, world.wallBoxes, _desiredCamPos);
           } else {
-            _camTarget.set(34.2, 1.35, -2.2);
-            _desiredCamPos.set(34.2, 2.25, -3.7);
+            _camTarget.set(34.2, wideTargetY, -2.35);
+            _csBaseCam.set(34.2, 2.25, -4.95 * wideDistBoost);
+            resolveCollisionFreeCutsceneCamera(_camTarget, _csBaseCam, world.wallBoxes, _desiredCamPos, firstNpc);
           }
         } else if (cs === 'fuzzy') {
           if (focus === 'player') {
-            _camTarget.set(pPos.x, 1.38, pPos.z);
-            _desiredCamPos.set(-19.4, 1.95, -15.6);
+            _camTarget.set(pPos.x, charTargetY, pPos.z);
+            _csBaseCam.set(-19.8, 2.0, -15.8);
+            resolveCollisionFreeCutsceneCamera(pPos, _csBaseCam, world.wallBoxes, _desiredCamPos);
           } else if (focus === 'npc' && firstNpc) {
-            _camTarget.set(firstNpc.x, 1.38, firstNpc.z);
-            _desiredCamPos.set(-16.8, 1.95, -12.0);
+            _camTarget.set(firstNpc.x, charTargetY, firstNpc.z);
+            _csBaseCam.set(-16.2, 2.0, -11.8);
+            resolveCollisionFreeCutsceneCamera(firstNpc, _csBaseCam, world.wallBoxes, _desiredCamPos);
           } else if (focus === 'hologram') {
-            _camTarget.set(-20.4, 1.6, -16.2);
-            _desiredCamPos.set(-16.6, 2.25, -12.6);
+            _camTarget.set(-20.4, 1.45, -16.2);
+            _csBaseCam.set(-16.2, 2.25, -12.4);
+            resolveCollisionFreeCutsceneCamera(_camTarget, _csBaseCam, world.wallBoxes, _desiredCamPos);
           } else {
-            _camTarget.set(-18.0, 1.35, -14.1);
-            _desiredCamPos.set(-16.6, 2.25, -11.0);
+            _camTarget.set(-18.0, wideTargetY, -14.1);
+            _csBaseCam.set(-15.9, 2.25, -10.8);
+            resolveCollisionFreeCutsceneCamera(_camTarget, _csBaseCam, world.wallBoxes, _desiredCamPos, firstNpc);
           }
         } else if (cs === 'bob') {
           if (focus === 'player') {
-            _camTarget.set(pPos.x, 1.38, pPos.z);
-            _desiredCamPos.set(-14.3, 1.95, -36.5);
+            _camTarget.set(pPos.x, charTargetY, pPos.z);
+            _csBaseCam.set(-13.8, 2.0, -36.8);
+            resolveCollisionFreeCutsceneCamera(pPos, _csBaseCam, world.wallBoxes, _desiredCamPos);
           } else if (focus === 'npc' && firstNpc) {
-            _camTarget.set(firstNpc.x, 1.38, firstNpc.z);
-            _desiredCamPos.set(-14.2, 1.95, -33.2);
+            _camTarget.set(firstNpc.x, charTargetY, firstNpc.z);
+            _csBaseCam.set(-13.8, 2.0, -32.8);
+            resolveCollisionFreeCutsceneCamera(firstNpc, _csBaseCam, world.wallBoxes, _desiredCamPos);
           } else if (focus === 'hologram') {
-            _camTarget.set(-19.0, 1.5, -36.0);
-            _desiredCamPos.set(-14.6, 2.25, -33.4);
+            _camTarget.set(-19.0, 1.4, -36.0);
+            _csBaseCam.set(-14.4, 2.25, -33.2);
+            resolveCollisionFreeCutsceneCamera(_camTarget, _csBaseCam, world.wallBoxes, _desiredCamPos);
           } else {
-            _camTarget.set(-15.7, 1.35, -35.0);
-            _desiredCamPos.set(-14.0, 2.2, -31.8);
+            _camTarget.set(-15.7, wideTargetY, -35.0);
+            _csBaseCam.set(-13.6, 2.2, -31.5);
+            resolveCollisionFreeCutsceneCamera(_camTarget, _csBaseCam, world.wallBoxes, _desiredCamPos, firstNpc);
           }
         } else {
-          // ratu_laras & all_final in Earth Observation Room north deck
+          // ratu_laras & all_final in Earth Observation Room open north deck
           if (focus === 'player') {
-            _camTarget.set(pPos.x, 1.38, pPos.z);
-            _desiredCamPos.set(pPos.x + 1.6, 1.9, pPos.z - 2.3);
+            _camTarget.set(pPos.x, charTargetY, pPos.z);
+            _csBaseCam.set(pPos.x + 2.0 * wideDistBoost, 2.0, pPos.z - 2.8 * wideDistBoost);
+            resolveCollisionFreeCutsceneCamera(pPos, _csBaseCam, world.wallBoxes, _desiredCamPos);
           } else if (focus === 'npc' && speakerNpc) {
-            _camTarget.set(speakerNpc.x, 1.38, speakerNpc.z);
-            _desiredCamPos.set(speakerNpc.x * 0.75, 1.9, speakerNpc.z + 2.5);
+            _camTarget.set(speakerNpc.x, charTargetY, speakerNpc.z);
+            _csBaseCam.set(speakerNpc.x * 0.72, 2.0, speakerNpc.z + 3.2 * wideDistBoost);
+            resolveCollisionFreeCutsceneCamera(speakerNpc, _csBaseCam, world.wallBoxes, _desiredCamPos);
           } else if (focus === 'hologram') {
-            _camTarget.set(0, 2.1, -55.0);
-            _desiredCamPos.set(3.2, 2.45, -51.4);
+            _camTarget.set(0, 1.95, -55.0);
+            _csBaseCam.set(3.6, 2.45, -51.0);
+            resolveCollisionFreeCutsceneCamera(_camTarget, _csBaseCam, world.wallBoxes, _desiredCamPos);
           } else {
-            _camTarget.set(0, 1.4, -59.0);
-            _desiredCamPos.set(0, 2.45, -56.9);
+            _camTarget.set(0, wideTargetY, -58.8);
+            _csBaseCam.set(0, 2.45, -55.8);
+            resolveCollisionFreeCutsceneCamera(_camTarget, _csBaseCam, world.wallBoxes, _desiredCamPos, speakerNpc);
           }
         }
 
-        // Prevent cutscene camera from clipping through outer station walls
-        _rayOrigin.copy(_camTarget);
-        _rayDir.subVectors(_desiredCamPos, _rayOrigin);
-        const csDist = _rayDir.length();
-        if (csDist > 0.1 && focus !== 'space' && focus !== 'shuttle') {
-          _rayDir.normalize();
-          _ray.set(_rayOrigin, _rayDir);
-          let minWallHit = csDist;
-          for (let i = 0; i < world.wallBoxes.length; i++) {
-            const hit = _ray.intersectBox(world.wallBoxes[i], _hitPoint);
-            if (hit) {
-              const d = _rayOrigin.distanceTo(hit);
-              if (d < minWallHit && d > 0.4) {
-                minWallHit = d - 0.35;
-              }
-            }
-          }
-          if (minWallHit < csDist) {
-            _desiredCamPos.copy(_rayOrigin).addScaledVector(_rayDir, Math.max(1.4, minWallHit));
-          }
-        }
-
-        const k = 1 - Math.exp(-3.4 * dt);
+        const k = 1 - Math.exp(-4.2 * dt);
         camera.position.lerp(_desiredCamPos, k);
         camera.lookAt(_camTarget);
-
-        // Dynamic LOS Occlusion Guard: hide any room furniture prop blocking camera -> actors/target
-        if (focus !== 'space' && focus !== 'shuttle') {
-          const csRoomId =
-            cs === 'prolog' && (prologPhase === 'sparkle_book' || pPos.x < -28)
-              ? 'navigation_room'
-              : CUTSCENES[cs].roomId;
-          const roomEntry = world.roomGroups.find((rg) => rg.roomId === csRoomId);
-          if (roomEntry && roomEntry.group.visible) {
-            const checkVisibilityAlongRay = (targetVec: THREE.Vector3) => {
-              _rayDir.subVectors(targetVec, camera.position);
-              const targetDist = _rayDir.length();
-              if (targetDist <= 0.3) return;
-              _rayDir.normalize();
-              _losRaycaster.set(camera.position, _rayDir);
-              _losRaycaster.near = 0.05;
-              _losRaycaster.far = targetDist - 0.2;
-              const hits = _losRaycaster.intersectObject(roomEntry.group, true);
-              for (let h = 0; h < hits.length; h++) {
-                let obj: THREE.Object3D | null = hits[h].object;
-                if (obj && obj !== roomEntry.group) {
-                  obj.visible = false;
-                  _hiddenCutsceneObjects.add(obj);
-                }
-              }
-            };
-
-            checkVisibilityAlongRay(_camTarget);
-            if (speakerNpc) {
-              _losTarget.set(speakerNpc.x, 1.25, speakerNpc.z);
-              checkVisibilityAlongRay(_losTarget);
-            }
-            if (csLine?.speakerId === 'player') {
-              _losTarget.set(pPos.x, 1.25, pPos.z);
-              checkVisibilityAlongRay(_losTarget);
-            }
-          }
-        }
       } else {
         const camYOffset = 1.35 + pPos.y * 0.65;
         _camTarget.set(pPos.x, camYOffset, pPos.z);
@@ -2123,7 +2357,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         }
 
         _desiredCamPos.y = THREE.MathUtils.clamp(_desiredCamPos.y, 0.45, 3.85);
-        const k = 1 - Math.exp(-14 * dt);
+        const glideRate = nowMs < postCutsceneGlideUntilRef.current ? 5.5 : 14;
+        const k = 1 - Math.exp(-glideRate * dt);
         camera.position.lerp(_desiredCamPos, k);
         camera.lookAt(_camTarget);
       }
@@ -2146,6 +2381,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           cameraYaw: camYawRef.current,
           currentRoomId: room?.id ?? null,
           currentRoomName: room ? room.name : 'Koridor Stasiun',
+          isTouchDevice: isTouchDeviceRef.current,
           nearbyTerminal: foundTerminal,
           nearbyBook: foundBook,
           nearbyVent: foundVent,
@@ -2172,6 +2408,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       dom.removeEventListener('pointermove', onPointerMove);
       dom.removeEventListener('pointerup', onPointerUp);
       dom.removeEventListener('pointercancel', onPointerUp);
+      dom.removeEventListener('pointerleave', onPointerLeave);
       dom.removeEventListener('wheel', onWheel);
       window.removeEventListener('resize', onResize);
       if (sparkleGuideRef.current) {

@@ -113,6 +113,7 @@ export function getDefaultSaveState(): SaveState {
     totalExp: 0,
     endingSeen: false,
     prologSeen: false,
+    tutorialSeen: false,
     readBooks: [],
     readBooksByPlayer: { astronaut: [] },
     lockedCompletedRooms: [],
@@ -410,6 +411,25 @@ export function normalizeAndRecoverSaveState(raw: Partial<SaveState> | null | un
   );
   normalizedByPlayer[playerKey] = readBooks;
 
+  const rawTrack = raw.settings?.musicTrack as string | undefined;
+  const normalizedTrack =
+    rawTrack === 'nebula_pulse'
+      ? 'seoul_neon'
+      : rawTrack === 'orbit_lofi'
+        ? 'western_sunset'
+        : rawTrack === 'starlight_house'
+          ? 'nusantara_gamelan'
+          : rawTrack === 'cosmic_drift' ||
+              rawTrack === 'nusantara_gamelan' ||
+              rawTrack === 'seoul_neon' ||
+              rawTrack === 'western_sunset' ||
+              rawTrack === 'tension_protocol'
+            ? rawTrack
+            : defaults.settings.musicTrack;
+
+  const hasExistingProgress =
+    Boolean(raw.prologSeen) || validMissions.length > 0 || completedChapters.length > 0;
+
   const normalizedState: SaveState = {
     ...defaults,
     ...raw,
@@ -418,7 +438,11 @@ export function normalizeAndRecoverSaveState(raw: Partial<SaveState> | null | un
       ...(raw.character || {}),
       headwearTransform,
     },
-    settings: { ...defaults.settings, ...(raw.settings || {}) },
+    settings: {
+      ...defaults.settings,
+      ...(raw.settings || {}),
+      musicTrack: normalizedTrack,
+    },
     creatorInfo: { ...defaults.creatorInfo, ...(raw.creatorInfo || {}) },
     unlockedItems,
     completedMissions: validMissions,
@@ -430,7 +454,8 @@ export function normalizeAndRecoverSaveState(raw: Partial<SaveState> | null | un
     readBooks,
     readBooksByPlayer: normalizedByPlayer,
     lockedCompletedRooms: [],
-    prologSeen: Boolean(raw.prologSeen) || validMissions.length > 0 || completedChapters.length > 0,
+    prologSeen: hasExistingProgress,
+    tutorialSeen: Boolean(raw.tutorialSeen) || hasExistingProgress,
     activeCutsceneCheckpoint: activeCheckpoint,
     pendingRewardChapter,
     chapterProgress,

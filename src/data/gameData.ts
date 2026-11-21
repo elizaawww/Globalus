@@ -4,7 +4,9 @@ import {
   ChapterId,
   CostumeStyleId,
   CutsceneCharacterId,
+  CutsceneLine,
   CutsceneScript,
+  EmoteCategory,
   EmoteDef,
   EmoteId,
   HeadAccessoryId,
@@ -13,6 +15,7 @@ import {
   InventoryItemDef,
   MissionId,
   NeckAccessoryId,
+  NpcCharacterId,
   PlayerColorId,
   QuestionModel,
   QuizQuestion,
@@ -1283,6 +1286,50 @@ export const CUTSCENES: Record<CutsceneCharacterId, CutsceneScript> = {
         cameraFocus: 'hologram',
       },
       {
+        speaker: 'TEMAN KRU',
+        roleTitle: 'Rekan Astronaut GLOBALUS',
+        speakerId: 'companion',
+        colorHex: '#22d3ee',
+        text: 'Hah? Hah? Kenapa ini?',
+        emotion: 'panic',
+        gesture: 'panic',
+        cameraFocus: 'wide',
+        scenePhase: 'companion_panic',
+      },
+      {
+        speaker: 'TEMAN KRU',
+        roleTitle: 'Rekan Astronaut GLOBALUS',
+        speakerId: 'companion',
+        colorHex: '#22d3ee',
+        text: 'Eh, eh, sepertinya aku harus memperbaiki sesuatu di ruangan ini. Kamu perbaiki yang lainnya dulu, ya!',
+        emotion: 'panic',
+        gesture: 'point',
+        cameraFocus: 'companion',
+        scenePhase: 'companion_panic',
+      },
+      {
+        speaker: 'KAMU (ASTRONAUT)',
+        roleTitle: 'Komandan Misi',
+        speakerId: 'player',
+        colorHex: '#38bdf8',
+        text: 'Hah? Hah? Mau ke mana kamu?',
+        emotion: 'curious',
+        gesture: 'tilt_curious',
+        cameraFocus: 'player',
+        scenePhase: 'companion_leave',
+      },
+      {
+        speaker: 'TEMAN KRU',
+        roleTitle: 'Rekan Astronaut GLOBALUS',
+        speakerId: 'companion',
+        colorHex: '#22d3ee',
+        text: 'Bentarrr!',
+        emotion: 'panic',
+        gesture: 'panic',
+        cameraFocus: 'wide',
+        scenePhase: 'companion_leave',
+      },
+      {
         speaker: 'KAMU (ASTRONAUT)',
         roleTitle: 'Komandan Misi',
         speakerId: 'player',
@@ -2004,17 +2051,151 @@ export function getBadgeFromScore(score: number): {
   };
 }
 
+export const FIRST_MEETING_REACTIONS: Record<NpcCharacterId, CutsceneLine> = {
+  rex: {
+    speaker: 'KAMU (ASTRONAUT)',
+    roleTitle: 'Komandan Misi',
+    speakerId: 'player',
+    colorHex: '#38bdf8',
+    text: 'Hah?! Kamu siapa? Sejak kapan ada orang lain di ruang navigasi ini?!',
+    emotion: 'curious',
+    gesture: 'tilt_curious',
+    cameraFocus: 'player',
+  },
+  bima: {
+    speaker: 'KAMU (ASTRONAUT)',
+    roleTitle: 'Komandan Misi',
+    speakerId: 'player',
+    colorHex: '#38bdf8',
+    text: 'Eh, tunggu! Kamu siapa, ya? Tiba-tiba muncul di Sayap Timur!',
+    emotion: 'curious',
+    gesture: 'scratch_head',
+    cameraFocus: 'player',
+  },
+  fuzzy: {
+    speaker: 'KAMU (ASTRONAUT)',
+    roleTitle: 'Komandan Misi',
+    speakerId: 'player',
+    colorHex: '#38bdf8',
+    text: 'Loh?! Ada kru lain lagi di sini? Kamu siapa, nih?',
+    emotion: 'curious',
+    gesture: 'tilt_curious',
+    cameraFocus: 'player',
+  },
+  bob: {
+    speaker: 'KAMU (ASTRONAUT)',
+    roleTitle: 'Komandan Misi',
+    speakerId: 'player',
+    colorHex: '#38bdf8',
+    text: 'Hah? Kamu siapa? Kok tahu-tahu berdiri di ruang ekonomi?',
+    emotion: 'curious',
+    gesture: 'scratch_head',
+    cameraFocus: 'player',
+  },
+  ratu_laras: {
+    speaker: 'KAMU (ASTRONAUT)',
+    roleTitle: 'Komandan Misi',
+    speakerId: 'player',
+    colorHex: '#38bdf8',
+    text: 'Whoa! Siapa kamu?! Aura di dek observasi ini langsung terasa berbeda!',
+    emotion: 'curious',
+    gesture: 'tilt_curious',
+    cameraFocus: 'player',
+  },
+};
+
+export interface SecretTvChallenge {
+  id: string;
+  clueTitle: string;
+  clues: string[];
+  question: string;
+  options: Array<{ id: string; label: string }>;
+  correctOptionId: string;
+  explanation: string;
+}
+
+export const SECRET_TV_QUESTIONS: SecretTvChallenge[] = [
+  {
+    id: 'tv_1',
+    clueTitle: 'Siaran Rahasia #1 — Gelombang Budaya Pop Asia',
+    clues: [
+      'Clue 1: Muncul sebagai fenomena lintas negara lewat musik pop, koreografi sinkron, dan video musik global.',
+      'Clue 2: Penggemarnya di Indonesia memadukan budaya lokal seperti batik atau bahasa daerah dalam konten cover mereka.',
+    ],
+    question: 'Fenomena pertukaran tren budaya pop lintas batas yang diterima kreatif oleh masyarakat lokal tersebut mencerminkan proses...',
+    options: [
+      { id: 'hallyu_glokal', label: 'Globalisasi budaya & akulturasi kreatif lintas generasi' },
+      { id: 'isolasi', label: 'Isolasi budaya total tanpa akses media digital' },
+      { id: 'autarki', label: 'Penutupan pasar ekonomi antarnegara secara mutlak' },
+    ],
+    correctOptionId: 'hallyu_glokal',
+    explanation: 'Musik, tarian, dan media digital mempercepat interaksi budaya global sekaligus membuka ruang akulturasi kreatif di berbagai negara.',
+  },
+  {
+    id: 'tv_2',
+    clueTitle: 'Siaran Rahasia #2 — Panggung Kolaborasi Lokal–Global',
+    clues: [
+      'Clue 1: Penampilan panggung internasional memakai teknologi tata cahaya hologram modern.',
+      'Clue 2: Kostum dan irama gamelan tetap tampil sebagai identitas khas Nusantara di hadapan penonton dunia.',
+    ],
+    question: 'Strategi menggabungkan standar panggung global dengan kekayaan budaya lokal agar berdaya saing dunia disebut...',
+    options: [
+      { id: 'westernisasi', label: 'Westernisasi yang menghapus unsur tradisi' },
+      { id: 'glokalisasi', label: 'Glokalisasi (berpikir global, berakar pada keunikan lokal)' },
+      { id: 'ethnocentrism', label: 'Penolakan mutlak terhadap teknologi pertunjukan modern' },
+    ],
+    correctOptionId: 'glokalisasi',
+    explanation: 'Glokalisasi menjaga keunikan budaya Nusantara tetap hidup dan relevan saat bersanding di panggung dunia!',
+  },
+  {
+    id: 'tv_3',
+    clueTitle: 'Siaran Rahasia #3 — Etika Warga Digital Global',
+    clues: [
+      'Clue 1: Viral di media sosial memungkinkan siapa saja meniru gerakan dance dari belahan dunia lain dalam hitungan jam.',
+      'Clue 2: Diperlukan sikap menghargai hak cipta koreografer dan tidak merendahkan budaya sendiri.',
+    ],
+    question: 'Sikap sosiologis paling bijak saat mengikuti tren dance dan hiburan global di media sosial adalah...',
+    options: [
+      { id: 'kritis_kreatif', label: 'Menikmati tren secara kreatif, menghargai karya kreator, dan tetap bangga pada budaya lokal' },
+      { id: 'lupa_lokal', label: 'Menganggap budaya daerah selalu kuno dibanding tren luar negeri' },
+      { id: 'sebar_hoaks', label: 'Membagikan konten tanpa memperhatikan etika dan sumbernya' },
+    ],
+    correctOptionId: 'kritis_kreatif',
+    explanation: 'Sinyal TV Rahasia terpecahkan! Kamu berhasil memadukan keterbukaan global, etika digital, dan kebanggaan budaya Nusantara.',
+  },
+];
+
+export const EMOTE_CATEGORY_LABELS: Record<EmoteCategory, string> = {
+  sapaan: 'Sapaan',
+  reaksi: 'Reaksi',
+  ekspresi: 'Ekspresi',
+  selebrasi: 'Selebrasi',
+  lucu: 'Gerakan Lucu',
+  dance: 'Dance',
+};
+
 export const EMOTES: EmoteDef[] = [
-  { id: 'wave', emoji: '👋', label: 'Wave', durationMs: 2800, accentHex: '#38bdf8' },
-  { id: 'clap', emoji: '👏', label: 'Clap', durationMs: 2800, accentHex: '#10b981' },
-  { id: 'thumbs_up', emoji: '👍', label: 'Thumbs Up', durationMs: 2600, accentHex: '#0ea5e9' },
-  { id: 'heart', emoji: '❤️', label: 'Heart', durationMs: 3000, accentHex: '#f43f5e' },
-  { id: 'laugh', emoji: '😂', label: 'Laugh', durationMs: 2800, accentHex: '#f59e0b' },
-  { id: 'sad', emoji: '😢', label: 'Sad', durationMs: 3000, accentHex: '#64748b' },
-  { id: 'surprised', emoji: '😮', label: 'Surprised', durationMs: 2400, accentHex: '#eab308' },
-  { id: 'dance', emoji: '💃', label: 'Dance', durationMs: 3400, accentHex: '#ec4899' },
-  { id: 'celebrate', emoji: '🙌', label: 'Celebrate', durationMs: 3000, accentHex: '#14b8a6' },
-  { id: 'think', emoji: '🤔', label: 'Think', durationMs: 3000, accentHex: '#8b5cf6' },
+  // Starter Emotes (11)
+  { id: 'wave', emoji: '👋', label: 'Wave', category: 'sapaan', durationMs: 2800, accentHex: '#38bdf8', isStarter: true, unlockType: 'starter', unlockLabel: 'Tersedia sejak awal' },
+  { id: 'bow', emoji: '🙇', label: 'Hormat', category: 'sapaan', durationMs: 2600, accentHex: '#0ea5e9', isStarter: true, unlockType: 'starter', unlockLabel: 'Tersedia sejak awal' },
+  { id: 'thumbs_up', emoji: '👍', label: 'Thumbs Up', category: 'reaksi', durationMs: 2600, accentHex: '#0ea5e9', isStarter: true, unlockType: 'starter', unlockLabel: 'Tersedia sejak awal' },
+  { id: 'surprised', emoji: '😮', label: 'Surprised', category: 'reaksi', durationMs: 2400, accentHex: '#eab308', isStarter: true, unlockType: 'starter', unlockLabel: 'Tersedia sejak awal' },
+  { id: 'heart', emoji: '❤️', label: 'Heart', category: 'ekspresi', durationMs: 3000, accentHex: '#f43f5e', isStarter: true, unlockType: 'starter', unlockLabel: 'Tersedia sejak awal' },
+  { id: 'laugh', emoji: '😂', label: 'Laugh', category: 'ekspresi', durationMs: 2800, accentHex: '#f59e0b', isStarter: true, unlockType: 'starter', unlockLabel: 'Tersedia sejak awal' },
+  { id: 'sad', emoji: '😢', label: 'Sad', category: 'ekspresi', durationMs: 3000, accentHex: '#64748b', isStarter: true, unlockType: 'starter', unlockLabel: 'Tersedia sejak awal' },
+  { id: 'think', emoji: '🤔', label: 'Think', category: 'ekspresi', durationMs: 3000, accentHex: '#8b5cf6', isStarter: true, unlockType: 'starter', unlockLabel: 'Tersedia sejak awal' },
+  { id: 'clap', emoji: '👏', label: 'Clap', category: 'selebrasi', durationMs: 2800, accentHex: '#10b981', isStarter: true, unlockType: 'starter', unlockLabel: 'Tersedia sejak awal' },
+  { id: 'celebrate', emoji: '🙌', label: 'Celebrate', category: 'selebrasi', durationMs: 3000, accentHex: '#14b8a6', isStarter: true, unlockType: 'starter', unlockLabel: 'Tersedia sejak awal' },
+  { id: 'dance', emoji: '💃', label: 'Orbit Dance', category: 'dance', durationMs: 3600, accentHex: '#ec4899', isStarter: true, unlockType: 'starter', unlockLabel: 'Tersedia sejak awal' },
+
+  // Chapter & Secret TV Unlockable Emotes (7)
+  { id: 'salute', emoji: '🫡', label: 'Komandan', category: 'sapaan', durationMs: 2600, accentHex: '#38bdf8', isStarter: false, requiredChapter: 1, unlockType: 'chapter', unlockLabel: 'Selesaikan Chapter 1' },
+  { id: 'shrug', emoji: '🤷', label: 'Bingung', category: 'reaksi', durationMs: 2800, accentHex: '#10b981', isStarter: false, requiredChapter: 2, unlockType: 'chapter', unlockLabel: 'Selesaikan Chapter 2' },
+  { id: 'flex', emoji: '💪', label: 'Flex Energi', category: 'lucu', durationMs: 3000, accentHex: '#ec4899', isStarter: false, requiredChapter: 3, unlockType: 'chapter', unlockLabel: 'Selesaikan Chapter 3' },
+  { id: 'cheer', emoji: '🎉', label: 'Sorak Misi', category: 'selebrasi', durationMs: 3000, accentHex: '#f59e0b', isStarter: false, requiredChapter: 4, unlockType: 'chapter', unlockLabel: 'Selesaikan Chapter 4' },
+  { id: 'spin', emoji: '🌀', label: 'Gaya Orbit', category: 'lucu', durationMs: 3200, accentHex: '#f43f5e', isStarter: false, requiredChapter: 5, unlockType: 'chapter', unlockLabel: 'Selesaikan Chapter 5' },
+  { id: 'kpop_groove', emoji: '✨', label: 'Cosmic Idol', category: 'dance', durationMs: 4400, accentHex: '#a855f7', isStarter: false, unlockType: 'secret_tv', unlockLabel: 'Misi Rahasia TV Budaya' },
+  { id: 'star_hop', emoji: '🌟', label: 'Starlight Pop', category: 'dance', durationMs: 4200, accentHex: '#f472b6', isStarter: false, unlockType: 'secret_tv', unlockLabel: 'Misi Rahasia TV Budaya' },
 ];
 
 export const EMOTE_MAP: Record<EmoteId, EmoteDef> = EMOTES.reduce(

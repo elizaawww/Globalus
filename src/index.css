@@ -32,6 +32,19 @@
   font-variant-numeric: tabular-nums;
 }
 
+.safe-hud-inset {
+  padding-top: max(0.5rem, env(safe-area-inset-top));
+  padding-right: max(0.5rem, env(safe-area-inset-right));
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+  padding-left: max(0.5rem, env(safe-area-inset-left));
+}
+
+.touch-control {
+  touch-action: none;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+
 /* Custom sleek scrollbars inside modals */
 .sci-scroll::-webkit-scrollbar {
   width: 6px;

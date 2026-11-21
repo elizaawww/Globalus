@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { EMOTE_MAP, PLAYER_COLORS } from '../data/gameData';
+import { PLAYER_COLORS } from '../data/gameData';
 import {
   CharacterAnimState,
   CharacterConfig,
@@ -42,41 +42,7 @@ export interface CharacterRig {
   }>;
   heldProp?: THREE.Group;
   nameSprite?: THREE.Sprite;
-  emoteSprite?: THREE.Sprite;
-  emoteBadgeKey?: EmoteId | null;
   suitParts: THREE.Mesh[];
-}
-
-const emoteTexCache = new Map<EmoteId, THREE.CanvasTexture>();
-
-function getEmoteBadgeTexture(emoteId: EmoteId): THREE.CanvasTexture {
-  const cached = emoteTexCache.get(emoteId);
-  if (cached) return cached;
-  const def = EMOTE_MAP[emoteId];
-  const canvas = document.createElement('canvas');
-  canvas.width = 160;
-  canvas.height = 160;
-  const ctx = canvas.getContext('2d');
-  if (ctx) {
-    ctx.clearRect(0, 0, 160, 160);
-    ctx.fillStyle = 'rgba(8, 15, 36, 0.92)';
-    ctx.strokeStyle = def.accentHex;
-    ctx.lineWidth = 7;
-    ctx.beginPath();
-    ctx.arc(80, 74, 58, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.font = '64px sans-serif';
-    ctx.fillText(def.emoji, 80, 77);
-  }
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.needsUpdate = true;
-  emoteTexCache.set(emoteId, tex);
-  return tex;
 }
 
 let sharedShadowTex: THREE.CanvasTexture | null = null;
@@ -1069,17 +1035,6 @@ export function buildAstronautRig(
     root.add(nameSprite);
   }
 
-  const emoteSpriteMat = new THREE.SpriteMaterial({
-    map: getEmoteBadgeTexture('wave'),
-    transparent: true,
-    depthTest: true,
-  });
-  const emoteSprite = new THREE.Sprite(emoteSpriteMat);
-  emoteSprite.position.set(0, options?.showNameplate ? 2.95 : 2.55, 0);
-  emoteSprite.scale.set(0.95, 0.95, 1);
-  emoteSprite.visible = false;
-  root.add(emoteSprite);
-
   return {
     root,
     bodyPivot,
@@ -1091,8 +1046,6 @@ export function buildAstronautRig(
     capeMesh,
     animatedAccGroups,
     nameSprite,
-    emoteSprite,
-    emoteBadgeKey: null,
     suitParts,
   };
 }
@@ -1271,29 +1224,7 @@ export function animateCharacterRig(
   emoteElapsed = 0
 ) {
   const k = 1 - Math.exp(-12 * delta);
-
-  // Sync floating 3D emote badge only when activeEmote is set & character isn't in a blocking state
-  const showEmote =
-    Boolean(activeEmote) &&
-    animState !== 'vent_in' &&
-    animState !== 'vent_out' &&
-    animState !== 'defeat';
-
-  if (rig.emoteSprite) {
-    if (showEmote && activeEmote) {
-      if (rig.emoteBadgeKey !== activeEmote) {
-        const mat = rig.emoteSprite.material as THREE.SpriteMaterial;
-        mat.map = getEmoteBadgeTexture(activeEmote);
-        mat.needsUpdate = true;
-        rig.emoteBadgeKey = activeEmote;
-      }
-      rig.emoteSprite.visible = true;
-      const baseY = rig.nameSprite ? 2.98 : 2.58;
-      rig.emoteSprite.position.y = baseY + Math.sin(time * 5.2) * 0.06;
-    } else {
-      rig.emoteSprite.visible = false;
-    }
-  }
+  // Emotes are expressed purely via 3D character body/limb animation (no floating overhead emoji)
 
   if (animState === 'jump') {
     rig.leftLeg.rotation.x = THREE.MathUtils.lerp(rig.leftLeg.rotation.x, -0.52, k);

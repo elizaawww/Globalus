@@ -15,6 +15,7 @@ import { MeetingModal } from './components/MeetingModal';
 import { MissionModal } from './components/MissionModal';
 import { MultiplayerLobby } from './components/MultiplayerLobby';
 import { TheoryBookModal } from './components/TheoryBookModal';
+import { TutorialModal } from './components/TutorialModal';
 import { VentModal } from './components/VentModal';
 import { CHAPTER_INFO, CUTSCENES, EMOTE_MAP, IMPOSTOR_CHALLENGES, INVENTORY_ITEMS, MISSION_META } from './data/gameData';
 import {
@@ -37,7 +38,6 @@ import {
   ChapterId,
   CharacterAnimState,
   CharacterConfig,
-  CreatorInfo,
   CutsceneCharacterId,
   CutsceneCheckpoint,
   CutsceneLine,
@@ -94,6 +94,10 @@ export default function App() {
     specialItem: InventoryItemDef;
   } | null>(null);
   const [quizOpen, setQuizOpen] = useState(false);
+  const [tutorialModal, setTutorialModal] = useState<{
+    open: boolean;
+    startPendingSolo: boolean;
+  }>({ open: false, startPendingSolo: false });
   const [chapterIntro, setChapterIntro] = useState<ChapterId | null>(null);
   const [roleRevealBanner, setRoleRevealBanner] = useState<'crewmate' | 'impostor' | null>(null);
   const [infoNotice, setInfoNotice] = useState<string | null>(null);
@@ -187,6 +191,7 @@ export default function App() {
   const voice = useVoiceChat({
     enabled:
       gameMode === 'multiplayer' &&
+      mp.isOnline &&
       Boolean(mp.roomCode) &&
       (view === 'playing' || view === 'multiplayer_lobby'),
     voiceFeatureEnabled: saveState.settings.voiceEnabled !== false,
@@ -225,6 +230,9 @@ export default function App() {
     cameraYaw: 0,
     currentRoomId: 'central_lobby',
     currentRoomName: 'Central Lobby',
+    isTouchDevice:
+      typeof window !== 'undefined' &&
+      Boolean(window.matchMedia?.('(pointer: coarse)').matches),
     nearbyTerminal: null,
     nearbyBook: null,
     nearbyVent: null,
@@ -353,7 +361,8 @@ export default function App() {
         !activeVentId &&
         !activeTheoryBook &&
         !quizOpen &&
-        !inventoryOpen
+        !inventoryOpen &&
+        !tutorialModal.open
       ) {
         setIsPaused((p) => !p);
       }
@@ -370,75 +379,128 @@ export default function App() {
     activeTheoryBook,
     quizOpen,
     inventoryOpen,
+    tutorialModal.open,
   ]);
+
+  const enterSoloGameplay = useCallback(
+    (latest: SaveState) => {
+      soundEngine.playGameStart();
+      setGameMode('solo');
+      setIsPaused(false);
+      setTeleportPos({ x: 0, z: 3.2, tick: Date.now(), skipAnim: true });
+      setView('playing');
+
+      if (latest.activeCutsceneCheckpoint) {
+        if (
+          latest.activeCutsceneCheckpoint.cutsceneId === 'prolog' &&
+          latest.activeCutsceneCheckpoint.lineIndex === 0
+        ) {
+          setActiveCutsceneInitialLine(0);
+          setActiveCutscene('prolog');
+          return;
+        }
+        setCutsceneResumePrompt(latest.activeCutsceneCheckpoint);
+        return;
+      }
+
+      if (latest.pendingRewardChapter) {
+        const chap = latest.pendingRewardChapter;
+        const chapInfo = CHAPTER_INFO[chap];
+        const ownedRewardId = chapInfo.rewardPool.find((id) => latest.unlockedItems.includes(id));
+        const rewardItem =
+          INVENTORY_ITEMS.find((i) => i.id === ownedRewardId) ||
+          INVENTORY_ITEMS.find((i) => i.id === chapInfo.rewardPool[0])!;
+        const specialItem = INVENTORY_ITEMS.find((i) => i.id === chapInfo.specialItemId)!;
+        setPendingReward({ chapter: chap, rewardItem, specialItem });
+        return;
+      }
+
+      if (!latest.prologSeen && latest.completedMissions.length === 0) {
+        setActiveCutsceneInitialLine(0);
+        setActiveCutscene('prolog');
+      } else if (
+        latest.prologSeen &&
+        latest.completedMissions.length === 0 &&
+        !(latest.readBooks || []).includes('book_2_karakteristik')
+      ) {
+        setTeleportPos({ x: -35.4, z: 3.25, tick: Date.now(), skipAnim: true });
+        showNotice('Tekan [E] atau Tap Buku untuk membuka materi pertama!');
+      } else if (latest.completedMissions.length === 0) {
+        setChapterIntro(1);
+      } else {
+        for (const chap of [2, 3, 4, 5] as ChapterId[]) {
+          const prevChap = (chap - 1) as ChapterId;
+          if (
+            latest.completedChapters.includes(prevChap) &&
+            !latest.completedChapters.includes(chap) &&
+            CHAPTER_INFO[chap].missions.every((m) => !latest.completedMissions.includes(m))
+          ) {
+            setChapterIntro(chap);
+            break;
+          }
+        }
+      }
+    },
+    [showNotice]
+  );
 
   const handlePlaySolo = () => {
     soundEngine.unlock();
-    soundEngine.playGameStart();
-    setGameMode('solo');
-    setIsPaused(false);
-    setTeleportPos({ x: 0, z: 3.2, tick: Date.now(), skipAnim: true });
-    setView('playing');
-
     const latest = normalizeAndRecoverSaveState(saveStateRef.current);
     saveStateRef.current = latest;
     setSaveState(latest);
     persistSaveStateNow(latest);
 
-    if (latest.activeCutsceneCheckpoint) {
-      if (
-        latest.activeCutsceneCheckpoint.cutsceneId === 'prolog' &&
-        latest.activeCutsceneCheckpoint.lineIndex === 0
-      ) {
-        setActiveCutsceneInitialLine(0);
-        setActiveCutscene('prolog');
-        return;
-      }
-      setCutsceneResumePrompt(latest.activeCutsceneCheckpoint);
-      return;
-    }
-
-    if (latest.pendingRewardChapter) {
-      const chap = latest.pendingRewardChapter;
-      const chapInfo = CHAPTER_INFO[chap];
-      const ownedRewardId = chapInfo.rewardPool.find((id) => latest.unlockedItems.includes(id));
-      const rewardItem =
-        INVENTORY_ITEMS.find((i) => i.id === ownedRewardId) ||
-        INVENTORY_ITEMS.find((i) => i.id === chapInfo.rewardPool[0])!;
-      const specialItem = INVENTORY_ITEMS.find((i) => i.id === chapInfo.specialItemId)!;
-      setPendingReward({ chapter: chap, rewardItem, specialItem });
-      return;
-    }
-
-    if (!latest.prologSeen && latest.completedMissions.length === 0) {
-      setActiveCutsceneInitialLine(0);
-      setActiveCutscene('prolog');
-    } else if (
-      latest.prologSeen &&
+    if (
+      !latest.tutorialSeen &&
+      !latest.prologSeen &&
       latest.completedMissions.length === 0 &&
-      !(latest.readBooks || []).includes('book_2_karakteristik')
+      !latest.activeCutsceneCheckpoint
     ) {
-      setTeleportPos({ x: -35.4, z: 3.25, tick: Date.now(), skipAnim: true });
-      showNotice('Tekan [E] atau Tap tombol Buku untuk membuka materi pertama!');
-    } else if (latest.completedMissions.length === 0) {
-      setChapterIntro(1);
-    } else {
-      for (const chap of [2, 3, 4, 5] as ChapterId[]) {
-        const prevChap = (chap - 1) as ChapterId;
-        if (
-          latest.completedChapters.includes(prevChap) &&
-          !latest.completedChapters.includes(chap) &&
-          CHAPTER_INFO[chap].missions.every((m) => !latest.completedMissions.includes(m))
-        ) {
-          setChapterIntro(chap);
-          break;
-        }
-      }
+      setTutorialModal({ open: true, startPendingSolo: true });
+      return;
     }
+
+    enterSoloGameplay(latest);
+  };
+
+  const handleCloseTutorial = () => {
+    const startPending = tutorialModal.startPendingSolo;
+    setTutorialModal({ open: false, startPendingSolo: false });
+    const prev = saveStateRef.current;
+    const next: SaveState = prev.tutorialSeen ? prev : { ...prev, tutorialSeen: true };
+    if (!prev.tutorialSeen) {
+      saveStateRef.current = next;
+      setSaveState(next);
+      persistSaveStateNow(next);
+    }
+    if (startPending) {
+      enterSoloGameplay(next);
+    }
+  };
+
+  const handleExitMultiplayerToSolo = () => {
+    soundEngine.setVoiceDucking(false);
+    setActiveMission(null);
+    setActiveImpChallenge(null);
+    setActiveVentId(null);
+    setActiveTheoryBook(null);
+    setIsPaused(false);
+    mp.leaveRoom();
+    mp.disconnect();
+    const latest = normalizeAndRecoverSaveState(saveStateRef.current);
+    saveStateRef.current = latest;
+    setSaveState(latest);
+    persistSaveStateNow(latest);
+    enterSoloGameplay(latest);
   };
 
   const handleOpenMultiplayer = () => {
     soundEngine.unlock();
+    if (!mp.isOnline) {
+      showNotice('Mode Offline aktif. Multiplayer Online membutuhkan koneksi internet.');
+      return;
+    }
     setGameMode('multiplayer');
     mp.connect(false);
     setView('multiplayer_lobby');
@@ -1026,6 +1088,7 @@ export default function App() {
       creatorInfo: prev.creatorInfo,
       unlockedItems: prev.unlockedItems,
       totalExp: prev.totalExp,
+      tutorialSeen: prev.tutorialSeen,
     };
     saveStateRef.current = next;
     setSaveState(next);
@@ -1070,13 +1133,12 @@ export default function App() {
         <HomeScreen
           view={view}
           saveState={saveState}
+          isOnline={mp.isOnline}
           onNavigate={(v) => setView(v)}
           onPlayGame={handlePlaySolo}
           onOpenMultiplayer={handleOpenMultiplayer}
+          onOpenTutorial={() => setTutorialModal({ open: true, startPendingSolo: false })}
           onUpdateSettings={(next) => setSaveState((p) => ({ ...p, settings: next }))}
-          onUpdateCreator={(next: CreatorInfo) =>
-            setSaveState((p) => ({ ...p, creatorInfo: next }))
-          }
           onResetProgress={handleResetProgress}
         />
       )}
@@ -1101,6 +1163,9 @@ export default function App() {
         <MultiplayerLobby
           character={saveState.character}
           status={mp.status}
+          isOnline={mp.isOnline}
+          reconnectAttempt={mp.reconnectAttempt}
+          maxReconnectAttempts={mp.maxReconnectAttempts}
           playerId={mp.playerId}
           roomCode={mp.roomCode}
           snapshot={mp.snapshot}
@@ -1116,6 +1181,8 @@ export default function App() {
             setCustomizeReturnView('multiplayer_lobby');
             setView('customize');
           }}
+          onRetryConnect={() => mp.retryConnect()}
+          onBackToSolo={handleExitMultiplayerToSolo}
           onBackHome={() => {
             soundEngine.setVoiceDucking(false);
             mp.disconnect();
@@ -1148,6 +1215,7 @@ export default function App() {
             activeCutsceneLine={activeCutsceneLine}
             isPaused={
               isPaused ||
+              tutorialModal.open ||
               Boolean(activeMission) ||
               Boolean(activeImpChallenge) ||
               Boolean(activeVentId) ||
@@ -1198,8 +1266,12 @@ export default function App() {
               activeTheoryBookId={activeTheoryBook}
               activeEmote={activeEmote}
               isMultiplayer={gameMode === 'multiplayer'}
+              isOnline={mp.isOnline}
               myPlayerId={mp.playerId}
               mpStatus={mp.status}
+              reconnectAttempt={mp.reconnectAttempt}
+              maxReconnectAttempts={mp.maxReconnectAttempts}
+              mpLastError={mp.lastError}
               mpRole={mp.role}
               amAlive={amAlive}
               mpSnapshot={mp.snapshot}
@@ -1208,6 +1280,7 @@ export default function App() {
               voiceControls={voiceControls}
               onTogglePause={() => setIsPaused((p) => !p)}
               onOpenInventory={() => setInventoryOpen(true)}
+              onOpenTutorial={() => setTutorialModal({ open: true, startPendingSolo: false })}
               onResetCamera={() => setResetCameraTick((t) => t + 1)}
               onJump={() => triggerJumpRef.current?.()}
               onTriggerEmote={handleTriggerEmote}
@@ -1216,6 +1289,8 @@ export default function App() {
               onInteractVent={handleInteractVent}
               onCallMeeting={(reason, podId) => mp.callMeeting(reason, podId)}
               onEliminateTarget={(targetId) => mp.eliminatePlayer(targetId)}
+              onRetryConnect={() => mp.retryConnect()}
+              onExitToSolo={handleExitMultiplayerToSolo}
               onUpdateSettings={(next) => setSaveState((p) => ({ ...p, settings: next }))}
               onOpenFinalQuiz={() => setQuizOpen(true)}
               onBackHome={() => {
@@ -1549,6 +1624,15 @@ export default function App() {
             setSaveState((prev) => ({ ...prev, character: nextChar }))
           }
           onClose={() => setInventoryOpen(false)}
+        />
+      )}
+
+      {/* Pre-Chapter-1 & Reopenable Visual Tutorial Modal */}
+      {tutorialModal.open && (
+        <TutorialModal
+          isFirstTime={tutorialModal.startPendingSolo}
+          onComplete={handleCloseTutorial}
+          onSkip={handleCloseTutorial}
         />
       )}
     </div>

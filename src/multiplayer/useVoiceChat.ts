@@ -2,6 +2,44 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { soundEngine } from '../audio/soundEngine';
 import { MultiplayerPhase, RemotePlayerPublic } from '../types/game';
 
+export type VoiceStatus =
+  | 'mic_unpermitted'
+  | 'mic_requesting'
+  | 'mic_active'
+  | 'voice_connecting'
+  | 'voice_connected'
+  | 'voice_failed'
+  | 'mic_denied'
+  | 'no_mic'
+  | 'offline';
+
+export type VoicePermissionState = 'prompt' | 'granted' | 'denied' | 'unsupported';
+
+export interface VoiceDeviceInfo {
+  deviceId: string;
+  label: string;
+}
+
+const VOICE_GUIDE_KEY = 'globalus_voice_guide_seen';
+
+function readGuideSeen(): boolean {
+  try {
+    return typeof window !== 'undefined' && window.localStorage.getItem(VOICE_GUIDE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function writeGuideSeen(): void {
+  try {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(VOICE_GUIDE_KEY, '1');
+    }
+  } catch {
+    // ignore storage errors
+  }
+}
+
 interface UseVoiceChatOptions {
   enabled: boolean;
   voiceFeatureEnabled: boolean;
@@ -44,7 +82,15 @@ export function useVoiceChat({
   const [muted, setMuted] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
+  const [micRequesting, setMicRequesting] = useState(false);
+  const [micHardwareMissing, setMicHardwareMissing] = useState(false);
+  const [permissionState, setPermissionState] = useState<VoicePermissionState>('prompt');
+  const [permissionPromptOpen, setPermissionPromptOpen] = useState(false);
+  const [audioInputs, setAudioInputs] = useState<VoiceDeviceInfo[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
   const [connectedPeerIds, setConnectedPeerIds] = useState<string[]>([]);
+  const [failedPeerIds, setFailedPeerIds] = useState<string[]>([]);
+  const [connectingPeerIds, setConnectingPeerIds] = useState<string[]>([]);
   const [locallyMutedIds, setLocallyMutedIds] = useState<string[]>([]);
 
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -59,6 +105,8 @@ export function useVoiceChat({
   mutedRef.current = muted;
   const speakingRef = useRef(speaking);
   speakingRef.current = speaking;
+  const selectedDeviceIdRef = useRef(selectedDeviceId);
+  selectedDeviceIdRef.current = selectedDeviceId;
   const voiceVolumeRef = useRef(voiceVolume);
   voiceVolumeRef.current = voiceVolume;
   const voiceFeatureRef = useRef(voiceFeatureEnabled);
@@ -80,6 +128,66 @@ export function useVoiceChat({
   const sendRtcSignalRef = useRef(sendRtcSignal);
   sendRtcSignalRef.current = sendRtcSignal;
 
+  // Query initial mic permission + audio input list gracefully
+  const refreshDevices = useCallback(async () => {
+    if (!navigator.mediaDevices?.enumerateDevices) return;
+    try {
+      const list = await navigator.mediaDevices.enumerateDevices();
+      const mics = list
+        .filter((d) => d.kind === 'audioinput')
+        .map((d, idx) => ({
+          deviceId: d.deviceId,
+          label: d.label?.trim() || `Mikrofon ${idx + 1}`,
+        }));
+      setAudioInputs(mics);
+      if (mics.length > 0 && !selectedDeviceIdRef.current) {
+        setSelectedDeviceId(mics[0].deviceId);
+      }
+    } catch {
+      // ignore enumeration restriction
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setPermissionState('unsupported');
+      return;
+    }
+    let mounted = true;
+    let permStatus: PermissionStatus | null = null;
+    const onPermChange = () => {
+      if (!mounted || !permStatus) return;
+      if (permStatus.state === 'granted' || permStatus.state === 'denied' || permStatus.state === 'prompt') {
+        setPermissionState(permStatus.state);
+      }
+    };
+    if (navigator.permissions?.query) {
+      navigator.permissions
+        .query({ name: 'microphone' as PermissionName })
+        .then((st) => {
+          if (!mounted) return;
+          permStatus = st;
+          if (st.state === 'granted' || st.state === 'denied' || st.state === 'prompt') {
+            setPermissionState(st.state);
+          }
+          st.addEventListener?.('change', onPermChange);
+        })
+        .catch(() => {
+          // Safari/older browsers do not support microphone Permissions API query
+        });
+    }
+    void refreshDevices();
+    const onDeviceChange = () => {
+      void refreshDevices();
+    };
+    navigator.mediaDevices.addEventListener?.('devicechange', onDeviceChange);
+    return () => {
+      mounted = false;
+      permStatus?.removeEventListener?.('change', onPermChange);
+      navigator.mediaDevices?.removeEventListener?.('devicechange', onDeviceChange);
+    };
+  }, [refreshDevices]);
+
   const canHearPeer = useCallback((peer: RemotePlayerPublic): boolean => {
     if (!voiceFeatureRef.current) return false;
     if (locallyMutedSetRef.current.has(peer.id)) return false;
@@ -93,16 +201,22 @@ export function useVoiceChat({
 
   const refreshConnectedList = useCallback(() => {
     const connected: string[] = [];
+    const failed: string[] = [];
+    const connecting: string[] = [];
     peersRef.current.forEach((entry, pid) => {
-      if (
-        entry.pc.connectionState === 'connected' ||
-        entry.pc.iceConnectionState === 'connected' ||
-        entry.pc.iceConnectionState === 'completed'
-      ) {
+      const cState = entry.pc.connectionState;
+      const iceState = entry.pc.iceConnectionState;
+      if (cState === 'connected' || iceState === 'connected' || iceState === 'completed') {
         connected.push(pid);
+      } else if (cState === 'failed' || iceState === 'failed') {
+        failed.push(pid);
+      } else if (cState === 'connecting' || cState === 'new' || iceState === 'checking') {
+        connecting.push(pid);
       }
     });
     setConnectedPeerIds(connected);
+    setFailedPeerIds(failed);
+    setConnectingPeerIds(connecting);
   }, []);
 
   const syncAllAudioElements = useCallback(() => {
@@ -124,6 +238,7 @@ export function useVoiceChat({
         entry.pc.onicecandidate = null;
         entry.pc.ontrack = null;
         entry.pc.onconnectionstatechange = null;
+        entry.pc.oniceconnectionstatechange = null;
         entry.pc.onnegotiationneeded = null;
         entry.pc.close();
       } catch {
@@ -173,6 +288,9 @@ export function useVoiceChat({
         }
       });
     });
+    micOnRef.current = false;
+    mutedRef.current = false;
+    speakingRef.current = false;
     setMicOn(false);
     setMuted(false);
     setSpeaking(false);
@@ -230,9 +348,9 @@ export function useVoiceChat({
         entry.audioEl.play().catch(() => {});
       };
 
-      pc.onconnectionstatechange = () => {
+      const handleStateChange = () => {
         refreshConnectedList();
-        if (pc.connectionState === 'failed') {
+        if (pc.connectionState === 'failed' || pc.iceConnectionState === 'failed') {
           try {
             pc.restartIce();
           } catch {
@@ -240,6 +358,8 @@ export function useVoiceChat({
           }
         }
       };
+      pc.onconnectionstatechange = handleStateChange;
+      pc.oniceconnectionstatechange = handleStateChange;
 
       pc.onnegotiationneeded = async () => {
         try {
@@ -255,6 +375,7 @@ export function useVoiceChat({
         }
       };
 
+      refreshConnectedList();
       return entry;
     },
     [refreshConnectedList, syncAllAudioElements]
@@ -408,22 +529,21 @@ export function useVoiceChat({
       vadTimerRef.current = null;
     }
     if (audioCtxRef.current) {
-      if (audioCtxRef.current.state === 'suspended') {
-        audioCtxRef.current.resume().catch(() => {});
-      }
-    } else {
-      const AudioCtx =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      if (AudioCtx) {
-        const ctx = new AudioCtx();
-        const src = ctx.createMediaStreamSource(stream);
-        const analyser = ctx.createAnalyser();
-        analyser.fftSize = 512;
-        src.connect(analyser);
-        audioCtxRef.current = ctx;
-        analyserRef.current = analyser;
-      }
+      audioCtxRef.current.close().catch(() => {});
+      audioCtxRef.current = null;
+      analyserRef.current = null;
+    }
+    const AudioCtx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    if (AudioCtx) {
+      const ctx = new AudioCtx();
+      const src = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 512;
+      src.connect(analyser);
+      audioCtxRef.current = ctx;
+      analyserRef.current = analyser;
     }
 
     if (!analyserRef.current) return;
@@ -453,8 +573,129 @@ export function useVoiceChat({
     }, 130);
   }, []);
 
+  const attachLocalStreamToPeers = useCallback((stream: MediaStream) => {
+    const audioTracks = stream.getAudioTracks();
+    peersRef.current.forEach((entry, pid) => {
+      const senders = entry.pc.getSenders();
+      audioTracks.forEach((track) => {
+        const existingAudioSender = senders.find((s) => s.track?.kind === 'audio');
+        if (existingAudioSender) {
+          existingAudioSender.replaceTrack(track).catch(() => {});
+        } else {
+          entry.pc.addTrack(track, stream);
+        }
+      });
+      entry.pc.getTransceivers().forEach((tr) => {
+        if (tr.receiver.track?.kind === 'audio' && tr.direction === 'recvonly') {
+          tr.direction = 'sendrecv';
+        }
+      });
+      if (myIdRef.current && myIdRef.current < pid && entry.pc.signalingState === 'stable') {
+        entry.pc
+          .setLocalDescription()
+          .then(() => {
+            if (entry.pc.localDescription) {
+              sendRtcSignalRef.current(pid, 'offer', entry.pc.localDescription);
+            }
+          })
+          .catch(() => {});
+      }
+    });
+  }, []);
+
+  const activateMic = useCallback(
+    async (deviceIdOverride?: string) => {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setPermissionState('unsupported');
+        setMicHardwareMissing(true);
+        setMicError('Browser atau perangkat ini tidak mendukung akses mikrofon WebRTC.');
+        return;
+      }
+
+      setMicRequesting(true);
+      setMicError(null);
+      setMicHardwareMissing(false);
+
+      const targetDevice = deviceIdOverride ?? selectedDeviceIdRef.current;
+
+      try {
+        const constraints: MediaStreamConstraints = {
+          audio: {
+            ...(targetDevice ? { deviceId: { exact: targetDevice } } : {}),
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+          video: false,
+        };
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+
+        // Stop old tracks if switching hardware
+        if (localStreamRef.current) {
+          localStreamRef.current.getTracks().forEach((t) => {
+            try {
+              t.stop();
+            } catch {
+              // ignore
+            }
+          });
+        }
+
+        localStreamRef.current = stream;
+        const audioTracks = stream.getAudioTracks();
+        audioTracks.forEach((t) => {
+          t.enabled = true;
+        });
+
+        const activeSettings = audioTracks[0]?.getSettings?.();
+        if (activeSettings?.deviceId) {
+          selectedDeviceIdRef.current = activeSettings.deviceId;
+          setSelectedDeviceId(activeSettings.deviceId);
+        }
+
+        setPermissionState('granted');
+        writeGuideSeen();
+        void refreshDevices();
+
+        attachLocalStreamToPeers(stream);
+        startVadLoop(stream);
+
+        micOnRef.current = true;
+        mutedRef.current = false;
+        speakingRef.current = false;
+        setMicOn(true);
+        setMuted(false);
+        setSpeaking(false);
+        sendVoiceStateRef.current(true, false, false);
+      } catch (err) {
+        const name = err instanceof Error ? err.name : '';
+        if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+          setPermissionState('denied');
+          setMicError(
+            'Izin mikrofon ditolak browser. Buka ikon gembok di bilah alamat, pilih Izinkan Mikrofon, lalu klik On Mic lagi.'
+          );
+        } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError' || name === 'OverconstrainedError') {
+          setMicHardwareMissing(true);
+          setMicError(
+            'Mikrofon tidak ditemukan atau perangkat audio sedang terputus. Permainan dan chat teks tetap berjalan normal.'
+          );
+        } else {
+          setMicError('Mikrofon gagal diaktifkan. Pastikan tidak dipakai aplikasi lain atau sambungkan ulang headset.');
+        }
+        stopMicHardware();
+      } finally {
+        setMicRequesting(false);
+      }
+    },
+    [attachLocalStreamToPeers, refreshDevices, startVadLoop, stopMicHardware]
+  );
+
   // Explicit user-triggered On Mic / Off Mic
   const toggleMic = useCallback(async () => {
+    if (!enabled) {
+      setMicError('Mode Offline aktif — Voice Chat membutuhkan koneksi multiplayer.');
+      return;
+    }
     if (!voiceFeatureRef.current) {
       setMicError('Voice Chat sedang dinonaktifkan di pengaturan.');
       return;
@@ -484,92 +725,92 @@ export function useVoiceChat({
     }
 
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setPermissionState('unsupported');
+      setMicHardwareMissing(true);
       setMicError('Browser atau perangkat tidak mendukung akses mikrofon.');
       return;
     }
 
-    // Pre-check Permissions API if supported to surface clear message when denied
+    // Check current browser permission state cleanly
+    let curPerm: VoicePermissionState = permissionState;
     try {
       if (navigator.permissions?.query) {
         const status = await navigator.permissions.query({ name: 'microphone' as PermissionName });
-        if (status.state === 'denied') {
-          setMicError(
-            'Izin mikrofon diblokir browser. Aktifkan izin mikrofon di ikon gembok/alamat situs lalu klik On Mic lagi.'
-          );
-          return;
+        if (status.state === 'granted' || status.state === 'denied' || status.state === 'prompt') {
+          curPerm = status.state;
+          setPermissionState(status.state);
         }
       }
     } catch {
-      // Permissions API for microphone is not supported in all browsers; continue to getUserMedia
+      // Permissions API for microphone is not supported in all browsers (e.g., iOS Safari)
     }
 
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-        video: false,
-      });
+    if (curPerm === 'denied') {
+      setMicError(
+        'Izin mikrofon diblokir browser. Aktifkan izin mikrofon di ikon gembok/pengaturan situs lalu klik On Mic lagi.'
+      );
+      return;
+    }
 
-      localStreamRef.current = stream;
-      const audioTracks = stream.getAudioTracks();
-      audioTracks.forEach((t) => {
-        t.enabled = true;
-      });
+    // First-time permission explanation guide before OS/browser dialog appears
+    if (curPerm !== 'granted' && !readGuideSeen()) {
+      setPermissionPromptOpen(true);
+      return;
+    }
 
-      // Attach audio track to every existing peer connection & renegotiate
-      peersRef.current.forEach((entry, pid) => {
-        const senders = entry.pc.getSenders();
-        audioTracks.forEach((track) => {
-          const existingAudioSender = senders.find((s) => s.track?.kind === 'audio');
-          if (existingAudioSender) {
-            existingAudioSender.replaceTrack(track).catch(() => {});
-          } else {
-            entry.pc.addTrack(track, stream);
-          }
-        });
-        entry.pc.getTransceivers().forEach((tr) => {
-          if (tr.receiver.track?.kind === 'audio' && tr.direction === 'recvonly') {
-            tr.direction = 'sendrecv';
-          }
-        });
-        if (myIdRef.current && myIdRef.current < pid && entry.pc.signalingState === 'stable') {
-          entry.pc
-            .setLocalDescription()
-            .then(() => {
-              if (entry.pc.localDescription) {
-                sendRtcSignalRef.current(pid, 'offer', entry.pc.localDescription);
-              }
-            })
-            .catch(() => {});
-        }
-      });
+    await activateMic();
+  }, [activateMic, enabled, pauseMicSoft, permissionState, startVadLoop]);
 
-      startVadLoop(stream);
+  const confirmMicPermission = useCallback(() => {
+    writeGuideSeen();
+    setPermissionPromptOpen(false);
+    void activateMic();
+  }, [activateMic]);
 
-      micOnRef.current = true;
-      mutedRef.current = false;
-      speakingRef.current = false;
-      setMicOn(true);
-      setMuted(false);
-      setSpeaking(false);
-      sendVoiceStateRef.current(true, false, false);
-    } catch (err) {
-      const name = err instanceof Error ? err.name : '';
-      if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
-        setMicError(
-          'Izin mikrofon ditolak browser. Aktifkan izin mikrofon di pengaturan situs jika ingin berbicara.'
-        );
-      } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
-        setMicError('Mikrofon tidak ditemukan di perangkat ini. Game tetap berjalan normal.');
-      } else {
-        setMicError('Mikrofon gagal diaktifkan. Pastikan tidak dipakai aplikasi lain.');
+  const dismissMicPermission = useCallback(() => {
+    writeGuideSeen();
+    setPermissionPromptOpen(false);
+  }, []);
+
+  const selectDevice = useCallback(
+    (deviceId: string) => {
+      selectedDeviceIdRef.current = deviceId;
+      setSelectedDeviceId(deviceId);
+      if (micOnRef.current) {
+        void activateMic(deviceId);
       }
-      stopMicHardware();
+    },
+    [activateMic]
+  );
+
+  const retryVoiceConnections = useCallback(() => {
+    setMicError(null);
+    peersRef.current.forEach((entry, pid) => {
+      const cState = entry.pc.connectionState;
+      const iState = entry.pc.iceConnectionState;
+      if (cState === 'failed' || cState === 'disconnected' || iState === 'failed' || iState === 'disconnected') {
+        try {
+          entry.pc.restartIce();
+          if (myIdRef.current && myIdRef.current < pid && entry.pc.signalingState === 'stable') {
+            entry.pc
+              .setLocalDescription()
+              .then(() => {
+                if (entry.pc.localDescription) {
+                  sendRtcSignalRef.current(pid, 'offer', entry.pc.localDescription);
+                }
+              })
+              .catch(() => {});
+          }
+        } catch {
+          // ignore
+        }
+      }
+    });
+    refreshConnectedList();
+    if (!micOnRef.current && permissionState === 'granted') {
+      void activateMic();
     }
-  }, [pauseMicSoft, startVadLoop, stopMicHardware]);
+  }, [activateMic, permissionState, refreshConnectedList]);
 
   // Quick Mute / Unmute (immediately silences track to peers)
   const toggleMute = useCallback(() => {
@@ -595,19 +836,77 @@ export function useVoiceChat({
     );
   }, []);
 
-  const clearMicError = useCallback(() => setMicError(null), []);
+  const clearMicError = useCallback(() => {
+    setMicError(null);
+    setMicHardwareMissing(false);
+  }, []);
+
+  const voiceStatus: VoiceStatus = useMemo(() => {
+    if (!enabled) return 'offline';
+    if (micRequesting) return 'mic_requesting';
+    if (permissionState === 'denied') return 'mic_denied';
+    if (micHardwareMissing || permissionState === 'unsupported') return 'no_mic';
+    if (connectedPeerIds.length > 0 && micOn) return 'voice_connected';
+    if (failedPeerIds.length > 0 && connectedPeerIds.length === 0) return 'voice_failed';
+    if (micOn && connectingPeerIds.length > 0) return 'voice_connecting';
+    if (micOn) return 'mic_active';
+    if (connectedPeerIds.length > 0) return 'voice_connected';
+    return 'mic_unpermitted';
+  }, [
+    connectedPeerIds.length,
+    connectingPeerIds.length,
+    enabled,
+    failedPeerIds.length,
+    micHardwareMissing,
+    micOn,
+    micRequesting,
+    permissionState,
+  ]);
+
+  const voiceStatusLabel = useMemo(() => {
+    switch (voiceStatus) {
+      case 'offline':
+        return 'Offline (Butuh Internet)';
+      case 'mic_requesting':
+        return 'Meminta Izin Mikrofon...';
+      case 'mic_denied':
+        return 'Izin Mikrofon Ditolak';
+      case 'no_mic':
+        return 'Mikrofon Tidak Tersedia';
+      case 'voice_failed':
+        return 'Koneksi Suara Gagal';
+      case 'voice_connecting':
+        return 'Menghubungkan Suara...';
+      case 'voice_connected':
+        return micOn ? (muted ? 'Terhubung (Mic Dimute)' : 'Voice Tim Terhubung') : 'Mendengar Tim (Mic Mati)';
+      case 'mic_active':
+        return muted ? 'Mic Aktif (Muted)' : 'Mic Aktif (Siap Bicara)';
+      default:
+        return permissionState === 'granted' ? 'Siap (Mic Mati)' : 'Klik On Mic untuk Bicara';
+    }
+  }, [micOn, muted, permissionState, voiceStatus]);
 
   return {
     micOn,
     muted,
     speaking,
     micError,
+    voiceStatus,
+    voiceStatusLabel,
+    permissionState,
+    permissionPromptOpen,
+    audioInputs,
+    selectedDeviceId,
     connectedPeerIds,
     locallyMutedIds,
     toggleMic,
     toggleMute,
     toggleLocalMutePeer,
     clearMicError,
+    confirmMicPermission,
+    dismissMicPermission,
+    selectDevice,
+    retryVoiceConnections,
     handleRtcSignal,
   };
 }

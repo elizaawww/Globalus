@@ -45,7 +45,18 @@
   user-select: none;
 }
 
+.touch-pan-y {
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+}
+
 /* Custom sleek scrollbars inside modals */
+.sci-scroll {
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  overscroll-behavior-y: contain;
+}
 .sci-scroll::-webkit-scrollbar {
   width: 6px;
   height: 6px;

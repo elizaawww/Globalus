@@ -1293,7 +1293,7 @@ export const CUTSCENES: Record<CutsceneCharacterId, CutsceneScript> = {
         text: 'Hah? Hah? Kenapa ini?',
         emotion: 'panic',
         gesture: 'panic',
-        cameraFocus: 'wide',
+        cameraFocus: 'companion',
         scenePhase: 'companion_panic',
       },
       {
@@ -1326,7 +1326,7 @@ export const CUTSCENES: Record<CutsceneCharacterId, CutsceneScript> = {
         text: 'Bentarrr!',
         emotion: 'panic',
         gesture: 'panic',
-        cameraFocus: 'wide',
+        cameraFocus: 'companion',
         scenePhase: 'companion_leave',
       },
       {

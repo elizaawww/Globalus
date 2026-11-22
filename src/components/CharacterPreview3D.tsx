@@ -1,9 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { CharacterConfig } from '../types/game';
 import { animateCharacterRig, buildAstronautRig, CharacterRig } from '../three/characterBuilder';
 import { detectSoftwareGl } from '../three/proceduralTextures';
+import {
+  applyWebKitSafeEnvironment,
+  attachWebGLContextHandlers,
+  getSafeMaxDpr,
+  isIosOrWebKit,
+} from '../utils/platform';
 
 interface CharacterPreview3DProps {
   config: CharacterConfig;
@@ -22,6 +27,8 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
   const sceneRef = useRef<THREE.Scene | null>(null);
   const dragYawRef = useRef(0.35);
   const isDraggingRef = useRef(false);
+  const pointerLockRef = useRef<'none' | 'horiz' | 'vert'>('none');
+  const startPosRef = useRef({ x: 0, y: 0 });
   const lastXRef = useRef(0);
   const autoRotateRef = useRef(autoRotate);
   autoRotateRef.current = autoRotate;
@@ -32,17 +39,18 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
     if (!container) return;
 
     const isSoftwareGl = detectSoftwareGl();
+    const iosWebkit = isIosOrWebKit();
     let renderer: THREE.WebGLRenderer;
     try {
       renderer = new THREE.WebGLRenderer({
-        antialias: !isSoftwareGl,
+        antialias: !isSoftwareGl && !iosWebkit,
         alpha: true,
-        powerPreference: 'high-performance',
+        powerPreference: iosWebkit ? 'default' : 'high-performance',
       });
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
       renderer.toneMappingExposure = 1.15;
-      renderer.setPixelRatio(isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, 2));
+      renderer.setPixelRatio(getSafeMaxDpr('high', isSoftwareGl));
       renderer.setSize(container.clientWidth || 320, container.clientHeight || 360);
       container.appendChild(renderer.domElement);
     } catch {
@@ -50,12 +58,16 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
       return;
     }
 
+    const detachContext = attachWebGLContextHandlers(
+      renderer.domElement,
+      () => setWebglFailed(true),
+      () => setWebglFailed(false)
+    );
+
     const scene = new THREE.Scene();
     sceneRef.current = scene;
 
-    const pmrem = new THREE.PMREMGenerator(renderer);
-    scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    pmrem.dispose();
+    applyWebKitSafeEnvironment(renderer, scene, isSoftwareGl);
 
     const camera = new THREE.PerspectiveCamera(
       38,
@@ -66,12 +78,12 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
     camera.position.set(0, 1.45, 4.1);
     camera.lookAt(0, 1.05, 0);
 
-    const hemi = new THREE.HemisphereLight(0x7dd3fc, 0x0f172a, 0.9);
+    const hemi = new THREE.HemisphereLight(0x7dd3fc, 0x0f172a, iosWebkit ? 1.15 : 0.9);
     scene.add(hemi);
-    const key = new THREE.DirectionalLight(0xfff7ed, 1.8);
+    const key = new THREE.DirectionalLight(0xfff7ed, iosWebkit ? 2.1 : 1.8);
     key.position.set(3, 5, 4);
     scene.add(key);
-    const rim = new THREE.DirectionalLight(0x38bdf8, 1.1);
+    const rim = new THREE.DirectionalLight(0x38bdf8, 1.15);
     rim.position.set(-4, 3, -3);
     scene.add(rim);
 
@@ -157,19 +169,51 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
     ro.observe(container);
 
     const dom = renderer.domElement;
+    // Allow native vertical scrolling on mobile viewports while rotating on horizontal drags
+    dom.style.touchAction = 'pan-y';
+
     const onPointerDown = (e: PointerEvent) => {
       isDraggingRef.current = true;
+      pointerLockRef.current = e.pointerType === 'mouse' ? 'horiz' : 'none';
+      startPosRef.current = { x: e.clientX, y: e.clientY };
       lastXRef.current = e.clientX;
-      dom.setPointerCapture(e.pointerId);
+      if (e.pointerType === 'mouse') {
+        try {
+          dom.setPointerCapture(e.pointerId);
+        } catch {
+          // ignore
+        }
+      }
     };
     const onPointerMove = (e: PointerEvent) => {
       if (!isDraggingRef.current) return;
+      if (pointerLockRef.current === 'none') {
+        const adx = Math.abs(e.clientX - startPosRef.current.x);
+        const ady = Math.abs(e.clientY - startPosRef.current.y);
+        if (ady > 7 && ady > adx) {
+          pointerLockRef.current = 'vert';
+          isDraggingRef.current = false;
+          return;
+        }
+        if (adx > 6) {
+          pointerLockRef.current = 'horiz';
+          try {
+            dom.setPointerCapture(e.pointerId);
+          } catch {
+            // ignore
+          }
+        } else {
+          return;
+        }
+      }
+      if (pointerLockRef.current !== 'horiz') return;
       const dx = e.clientX - lastXRef.current;
       lastXRef.current = e.clientX;
       dragYawRef.current += dx * 0.012;
     };
     const onPointerUp = (e: PointerEvent) => {
       isDraggingRef.current = false;
+      pointerLockRef.current = 'none';
       try {
         dom.releasePointerCapture(e.pointerId);
       } catch {
@@ -187,6 +231,7 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
       cancelAnimationFrame(frameId);
       clearTimeout(frameId);
       ro.disconnect();
+      detachContext();
       dom.removeEventListener('pointerdown', onPointerDown);
       dom.removeEventListener('pointermove', onPointerMove);
       dom.removeEventListener('pointerup', onPointerUp);
@@ -221,8 +266,8 @@ export const CharacterPreview3D: React.FC<CharacterPreview3DProps> = ({
   return (
     <div
       ref={mountRef}
-      className={`relative w-full h-full cursor-grab active:cursor-grabbing ${className}`}
-      title="Geser untuk memutar karakter 360°"
+      className={`relative w-full h-full cursor-grab active:cursor-grabbing touch-pan-y ${className}`}
+      title="Geser kiri/kanan untuk memutar karakter 360°"
     />
   );
 };

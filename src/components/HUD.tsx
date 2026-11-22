@@ -46,7 +46,12 @@ import {
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
-import { MUSIC_TRACKS, normalizeMusicTrackId, soundEngine } from '../audio/soundEngine';
+import {
+  MUSIC_TRACKS,
+  MusicPlaybackState,
+  normalizeMusicTrackId,
+  soundEngine,
+} from '../audio/soundEngine';
 import {
   CHAPTER_INFO,
   EMOTE_CATEGORY_LABELS,
@@ -55,7 +60,7 @@ import {
   MISSION_META,
   PLAYER_COLORS,
 } from '../data/gameData';
-import { ROOMS, VENTS, WALKABLE_RECTS } from '../data/stationLayout';
+import { getRoomSvgPoints, ROOMS, VENTS, WALKABLE_RECTS } from '../data/stationLayout';
 import {
   areRequiredBooksRead,
   computeRoomLearningStatus,
@@ -79,18 +84,33 @@ import {
   TheoryBookId,
 } from '../types/game';
 import { HudLiveState } from './GameCanvas';
+import type {
+  VoiceDeviceInfo,
+  VoicePermissionState,
+  VoiceStatus,
+} from '../multiplayer/useVoiceChat';
 
 export interface HudVoiceControls {
   micOn: boolean;
   muted: boolean;
   speaking: boolean;
   micError: string | null;
+  voiceStatus?: VoiceStatus;
+  voiceStatusLabel?: string;
+  permissionState?: VoicePermissionState;
+  permissionPromptOpen?: boolean;
+  audioInputs?: VoiceDeviceInfo[];
+  selectedDeviceId?: string;
   connectedPeerIds: string[];
   locallyMutedIds: string[];
   onToggleMic: () => void;
   onToggleMute: () => void;
   onToggleLocalMutePeer: (peerId: string) => void;
   onClearMicError: () => void;
+  onConfirmMicPermission?: () => void;
+  onDismissMicPermission?: () => void;
+  onSelectDevice?: (deviceId: string) => void;
+  onRetryVoice?: () => void;
 }
 
 interface HUDProps {
@@ -219,6 +239,9 @@ export const HUD: React.FC<HUDProps> = ({
   const [freeMapCenter, setFreeMapCenter] = useState({ x: hud.playerX, z: hud.playerZ });
   const [smoothCenter, setSmoothCenter] = useState({ x: hud.playerX, z: hud.playerZ });
   const [musicPanelOpen, setMusicPanelOpen] = useState(false);
+  const [musicPlayback, setMusicPlayback] = useState<MusicPlaybackState>(() =>
+    soundEngine.getPlaybackState()
+  );
   const [voicePanelOpen, setVoicePanelOpen] = useState(false);
   const [emotesOpen, setEmotesOpen] = useState(false);
   const [emoteCat, setEmoteCat] = useState<EmoteCategory>('sapaan');
@@ -230,6 +253,12 @@ export const HUD: React.FC<HUDProps> = ({
   const fullMapSvgRef = useRef<SVGSVGElement>(null);
   const playerTargetRef = useRef({ x: hud.playerX, z: hud.playerZ });
   playerTargetRef.current = { x: hud.playerX, z: hud.playerZ };
+
+  useEffect(() => {
+    if (!musicPanelOpen) return;
+    setMusicPlayback(soundEngine.getPlaybackState());
+    return soundEngine.subscribePlayback(setMusicPlayback);
+  }, [musicPanelOpen]);
 
   const chapterData = CHAPTER_INFO[saveState.unlockedChapter];
   const lockedSet = useMemo(() => new Set(lockedRooms), [lockedRooms]);
@@ -650,25 +679,21 @@ export const HUD: React.FC<HUDProps> = ({
                     voiceControls.onToggleMic();
                   }}
                   disabled={!isOnline || saveState.settings.voiceEnabled === false}
-                  title={
-                    !isOnline
-                      ? 'Offline — Voice Chat membutuhkan koneksi internet'
-                      : saveState.settings.voiceEnabled === false
-                        ? 'Voice Chat dinonaktifkan'
-                        : voiceControls.micOn
-                          ? 'Matikan Mikrofon'
-                          : 'Aktifkan On Mic'
-                  }
+                  title={voiceControls.voiceStatusLabel || 'Kontrol Mikrofon Voice Chat'}
                   className={`touch-control px-2.5 py-2 rounded-xl border text-[11px] font-bold flex items-center gap-1.5 cursor-pointer transition-colors ${
                     !isOnline || saveState.settings.voiceEnabled === false
                       ? 'bg-slate-900/80 border-slate-700 text-slate-500 cursor-not-allowed'
-                      : voiceControls.micOn
-                        ? voiceControls.muted
-                          ? 'bg-amber-500/20 border-amber-400/60 text-amber-200'
-                          : voiceControls.speaking
-                            ? 'bg-emerald-500 border-emerald-200 text-slate-950 shadow-lg shadow-emerald-500/30'
-                            : 'bg-emerald-500/20 border-emerald-400/60 text-emerald-200'
-                        : 'bg-[#070d20]/90 hover:bg-slate-800 border-slate-700 text-slate-200'
+                      : voiceControls.voiceStatus === 'mic_denied' || voiceControls.voiceStatus === 'no_mic'
+                        ? 'bg-rose-950/80 border-rose-500/60 text-rose-200'
+                        : voiceControls.voiceStatus === 'mic_requesting'
+                          ? 'bg-sky-500/20 border-sky-400/60 text-sky-200'
+                          : voiceControls.micOn
+                            ? voiceControls.muted
+                              ? 'bg-amber-500/20 border-amber-400/60 text-amber-200'
+                              : voiceControls.speaking
+                                ? 'bg-emerald-500 border-emerald-200 text-slate-950 shadow-lg shadow-emerald-500/30'
+                                : 'bg-emerald-500/20 border-emerald-400/60 text-emerald-200'
+                            : 'bg-[#070d20]/90 hover:bg-slate-800 border-slate-700 text-slate-200'
                   }`}
                 >
                   {voiceControls.micOn && !voiceControls.muted && isOnline ? (
@@ -679,13 +704,17 @@ export const HUD: React.FC<HUDProps> = ({
                   <span className="hidden sm:inline">
                     {!isOnline
                       ? 'Offline'
-                      : voiceControls.micOn
-                        ? voiceControls.speaking && !voiceControls.muted
-                          ? 'Bicara'
-                          : voiceControls.muted
-                            ? 'Mic Off'
-                            : 'Mic On'
-                        : 'On Mic'}
+                      : voiceControls.voiceStatus === 'mic_requesting'
+                        ? 'Izin Mic...'
+                        : voiceControls.voiceStatus === 'mic_denied'
+                          ? 'Izin Ditolak'
+                          : voiceControls.micOn
+                            ? voiceControls.speaking && !voiceControls.muted
+                              ? 'Bicara'
+                              : voiceControls.muted
+                                ? 'Mic Off'
+                                : 'Mic On'
+                            : 'On Mic'}
                   </span>
                 </button>
 
@@ -871,43 +900,103 @@ export const HUD: React.FC<HUDProps> = ({
                 </button>
               </div>
 
-              <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-2.5 flex items-center justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="text-xs font-bold text-white truncate">{activeTrackDef.title}</p>
-                  <p className="text-[10px] text-violet-300 truncate">{activeTrackDef.genre}</p>
+              <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-2.5 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-white truncate">
+                      {musicPlayback.isExternal && saveState.settings.selectedExternalTrack
+                        ? saveState.settings.selectedExternalTrack.title
+                        : activeTrackDef.title}
+                    </p>
+                    <p className="text-[10px] text-violet-300 truncate">
+                      {musicPlayback.isExternal && saveState.settings.selectedExternalTrack
+                        ? saveState.settings.selectedExternalTrack.artist || 'Musik Online'
+                        : activeTrackDef.genre}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={() => cycleTrack(-1)}
+                      title="Lagu Sebelumnya"
+                      className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 cursor-pointer"
+                    >
+                      <SkipBack className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        soundEngine.playClick();
+                        if (musicPlayback.ended) {
+                          soundEngine.replayCurrentTrack();
+                          if (saveState.settings.musicPaused) {
+                            onUpdateSettings({ ...saveState.settings, musicPaused: false });
+                          }
+                        } else {
+                          onUpdateSettings({
+                            ...saveState.settings,
+                            musicPaused: !saveState.settings.musicPaused,
+                          });
+                        }
+                      }}
+                      title={
+                        musicPlayback.ended
+                          ? 'Putar Ulang'
+                          : saveState.settings.musicPaused
+                            ? 'Putar Musik'
+                            : 'Jeda Musik'
+                      }
+                      className="p-1.5 rounded-lg bg-violet-500 hover:bg-violet-400 text-white cursor-pointer"
+                    >
+                      {musicPlayback.ended ? (
+                        <RotateCcw className="w-3.5 h-3.5" />
+                      ) : saveState.settings.musicPaused ? (
+                        <Play className="w-3.5 h-3.5 fill-current" />
+                      ) : (
+                        <Pause className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                    <button
+                      onClick={() => cycleTrack(1)}
+                      title="Lagu Berikutnya"
+                      className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 cursor-pointer"
+                    >
+                      <SkipForward className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  <button
-                    onClick={() => cycleTrack(-1)}
-                    title="Lagu Sebelumnya"
-                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 cursor-pointer"
-                  >
-                    <SkipBack className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={() => {
-                      soundEngine.playClick();
-                      onUpdateSettings({
-                        ...saveState.settings,
-                        musicPaused: !saveState.settings.musicPaused,
-                      });
-                    }}
-                    title={saveState.settings.musicPaused ? 'Putar Musik' : 'Jeda Musik'}
-                    className="p-1.5 rounded-lg bg-violet-500 hover:bg-violet-400 text-white cursor-pointer"
-                  >
-                    {saveState.settings.musicPaused ? (
-                      <Play className="w-3.5 h-3.5 fill-current" />
-                    ) : (
-                      <Pause className="w-3.5 h-3.5" />
-                    )}
-                  </button>
-                  <button
-                    onClick={() => cycleTrack(1)}
-                    title="Lagu Berikutnya"
-                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 cursor-pointer"
-                  >
-                    <SkipForward className="w-3.5 h-3.5" />
-                  </button>
+
+                {/* Live Playback Progress */}
+                <div className="space-y-1">
+                  <div className="h-1.5 w-full rounded-full bg-slate-800 overflow-hidden">
+                    <div
+                      className="h-full bg-violet-400 transition-[width] duration-200"
+                      style={{
+                        width: `${
+                          musicPlayback.durationSec > 0
+                            ? Math.min(100, (musicPlayback.currentTimeSec / musicPlayback.durationSec) * 100)
+                            : 0
+                        }%`,
+                      }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] font-mono-num text-slate-400">
+                    <span>
+                      {`${Math.floor(musicPlayback.currentTimeSec / 60)}:${String(
+                        Math.floor(musicPlayback.currentTimeSec % 60)
+                      ).padStart(2, '0')}`}
+                    </span>
+                    <span className="text-violet-300">
+                      {musicPlayback.ended
+                        ? 'Selesai'
+                        : musicPlayback.isPreview
+                          ? 'Cuplikan Resmi'
+                          : 'Audio Stasiun'}
+                    </span>
+                    <span>
+                      {`${Math.floor(musicPlayback.durationSec / 60)}:${String(
+                        Math.floor(musicPlayback.durationSec % 60)
+                      ).padStart(2, '0')}`}
+                    </span>
+                  </div>
                 </div>
               </div>
 
@@ -1017,6 +1106,65 @@ export const HUD: React.FC<HUDProps> = ({
                 </div>
               )}
 
+              {/* Explicit Voice Connection & Permission Status */}
+              <div className="bg-slate-900/90 border border-slate-800 rounded-xl px-3 py-2 space-y-1.5">
+                <div className="flex items-center justify-between gap-2 text-[11px]">
+                  <span className="text-slate-400">Status Voice</span>
+                  <span
+                    className={`font-bold ${
+                      voiceControls.voiceStatus === 'mic_denied' ||
+                      voiceControls.voiceStatus === 'no_mic' ||
+                      voiceControls.voiceStatus === 'voice_failed'
+                        ? 'text-rose-300'
+                        : voiceControls.voiceStatus === 'voice_connected' ||
+                            voiceControls.voiceStatus === 'mic_active'
+                          ? 'text-emerald-300'
+                          : 'text-sky-300'
+                    }`}
+                  >
+                    {voiceControls.voiceStatusLabel || (voiceControls.micOn ? 'Mic Aktif' : 'Siap')}
+                  </span>
+                </div>
+                {voiceControls.voiceStatus === 'voice_failed' && voiceControls.onRetryVoice && (
+                  <button
+                    onClick={() => {
+                      soundEngine.playClick();
+                      voiceControls.onRetryVoice?.();
+                    }}
+                    className="w-full py-1.5 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/50 text-sky-200 text-[11px] font-bold cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                    Sambung Ulang Voice
+                  </button>
+                )}
+                {(voiceControls.voiceStatus === 'mic_denied' || voiceControls.voiceStatus === 'no_mic') && (
+                  <p className="text-[10px] text-amber-200/90 leading-relaxed">
+                    {voiceControls.voiceStatus === 'mic_denied'
+                      ? 'Ketuk ikon gembok di bilah browser → Izinkan Mikrofon, lalu tekan On Mic lagi. Game tetap dapat dimainkan.'
+                      : 'Sambungkan headset/mikrofon atau pilih input audio yang tersedia di perangkat Anda.'}
+                  </p>
+                )}
+              </div>
+
+              {voiceControls.audioInputs && voiceControls.audioInputs.length > 0 && voiceControls.onSelectDevice && (
+                <div className="space-y-1">
+                  <label className="block text-[10px] text-slate-400 font-semibold">
+                    Perangkat Mikrofon
+                  </label>
+                  <select
+                    value={voiceControls.selectedDeviceId || ''}
+                    onChange={(e) => voiceControls.onSelectDevice?.(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-[11px] text-slate-100 outline-none focus:border-sky-400"
+                  >
+                    {voiceControls.audioInputs.map((dev) => (
+                      <option key={dev.deviceId} value={dev.deviceId}>
+                        {dev.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div className="flex items-center justify-between bg-slate-900/80 border border-slate-800 rounded-xl px-3 py-2 text-xs">
                 <span className="text-slate-200 font-medium">Fitur Voice Chat</span>
                 <button
@@ -1115,18 +1263,29 @@ export const HUD: React.FC<HUDProps> = ({
           >
             <svg viewBox={miniViewBox} className="w-full h-full">
               <SpaceshipHullSilhouette />
-              {WALKABLE_RECTS.map((r) => (
-                <rect
-                  key={r.id}
-                  x={r.minX}
-                  y={r.minZ}
-                  width={r.maxX - r.minX}
-                  height={r.maxZ - r.minZ}
-                  fill={r.roomId ? '#1e293b' : '#0f172a'}
-                  stroke={r.roomId ? '#38bdf8' : '#334155'}
-                  strokeWidth={r.roomId ? 0.5 : 0.25}
-                />
-              ))}
+              {WALKABLE_RECTS.map((r) =>
+                r.roomId ? (
+                  <polygon
+                    key={r.id}
+                    points={getRoomSvgPoints(r.roomId)}
+                    fill="#1e293b"
+                    stroke="#38bdf8"
+                    strokeWidth={0.5}
+                    strokeLinejoin="round"
+                  />
+                ) : (
+                  <rect
+                    key={r.id}
+                    x={r.minX}
+                    y={r.minZ}
+                    width={r.maxX - r.minX}
+                    height={r.maxZ - r.minZ}
+                    fill="#0f172a"
+                    stroke="#334155"
+                    strokeWidth={0.25}
+                  />
+                )
+              )}
               {VENTS.map((v) => (
                 <rect
                   key={v.id}
@@ -1735,6 +1894,20 @@ export const HUD: React.FC<HUDProps> = ({
                   {WALKABLE_RECTS.map((r) => {
                     const isComp = Boolean(r.roomId && lockedSet.has(r.roomId));
                     const isChap = Boolean(r.roomId && chapterLockedSet.has(r.roomId));
+                    const fill = isComp ? '#06281e' : isChap ? '#1f0c14' : r.roomId ? '#1e293b' : '#0f172a';
+                    const stroke = isComp ? '#10b981' : isChap ? '#f43f5e' : r.roomId ? '#38bdf8' : '#334155';
+                    if (r.roomId) {
+                      return (
+                        <polygon
+                          key={r.id}
+                          points={getRoomSvgPoints(r.roomId)}
+                          fill={fill}
+                          stroke={stroke}
+                          strokeWidth={0.55}
+                          strokeLinejoin="round"
+                        />
+                      );
+                    }
                     return (
                       <rect
                         key={r.id}
@@ -1742,25 +1915,9 @@ export const HUD: React.FC<HUDProps> = ({
                         y={r.minZ}
                         width={r.maxX - r.minX}
                         height={r.maxZ - r.minZ}
-                        fill={
-                          isComp
-                            ? '#06281e'
-                            : isChap
-                              ? '#1f0c14'
-                              : r.roomId
-                                ? '#1e293b'
-                                : '#0f172a'
-                        }
-                        stroke={
-                          isComp
-                            ? '#10b981'
-                            : isChap
-                              ? '#f43f5e'
-                              : r.roomId
-                                ? '#38bdf8'
-                                : '#334155'
-                        }
-                        strokeWidth={0.5}
+                        fill={fill}
+                        stroke={stroke}
+                        strokeWidth={0.45}
                       />
                     );
                   })}

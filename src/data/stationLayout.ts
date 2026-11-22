@@ -237,6 +237,93 @@ export const ROOMS: Record<RoomId, RoomDef> = {
   },
 };
 
+export interface RoomCornerChamfers {
+  nw?: number;
+  ne?: number;
+  sw?: number;
+  se?: number;
+}
+
+export interface Point2D {
+  x: number;
+  z: number;
+}
+
+export interface AngledWallDef {
+  id: string;
+  roomId: RoomId;
+  x1: number;
+  z1: number;
+  x2: number;
+  z2: number;
+  length: number;
+  cx: number;
+  cz: number;
+  outX: number;
+  outZ: number;
+  angleY: number;
+  hasWindow: boolean;
+}
+
+// Non-rectangular chamfered/faceted sci-fi bay footprints carefully cleared of every prop, door, vent, and book
+export const ROOM_CHAMFERS: Record<RoomId, RoomCornerChamfers> = {
+  central_lobby: { nw: 1.8, ne: 1.8, sw: 1.8, se: 1.8 },
+  communication_room: { nw: 1.5, ne: 1.8, sw: 1.4, se: 2.5 },
+  technology_lab: { nw: 0.9, ne: 2.6, sw: 1.4, se: 1.8 },
+  navigation_room: { nw: 2.1, ne: 2.8, sw: 2.1, se: 2.3 },
+  cultural_room: { nw: 2.2, ne: 1.5, sw: 2.6, se: 0.8 },
+  economic_room: { nw: 2.6, ne: 1.4, sw: 2.2, se: 1.1 },
+  global_exchange_room: { nw: 2.8, ne: 2.2, sw: 2.4, se: 1.8 },
+  global_balance_room: { nw: 2.4, ne: 1.4, sw: 1.0, se: 1.0 },
+  world_economy_room: { nw: 2.2, ne: 1.9, sw: 2.4, se: 2.6 },
+  cultural_identity_room: { nw: 2.6, ne: 2.1, sw: 2.6, se: 2.6 },
+  earth_observation_room: { nw: 1.6, ne: 1.6, sw: 2.2, se: 2.2 },
+};
+
+export function buildRoomPolygon(roomId: RoomId): Point2D[] {
+  const b = ROOMS[roomId].bounds;
+  const c = ROOM_CHAMFERS[roomId] || {};
+  const nw = c.nw || 0;
+  const ne = c.ne || 0;
+  const se = c.se || 0;
+  const sw = c.sw || 0;
+  const pts: Point2D[] = [];
+
+  if (nw > 0) {
+    pts.push({ x: b.minX, z: b.minZ + nw }, { x: b.minX + nw, z: b.minZ });
+  } else {
+    pts.push({ x: b.minX, z: b.minZ });
+  }
+  if (ne > 0) {
+    pts.push({ x: b.maxX - ne, z: b.minZ }, { x: b.maxX, z: b.minZ + ne });
+  } else {
+    pts.push({ x: b.maxX, z: b.minZ });
+  }
+  if (se > 0) {
+    pts.push({ x: b.maxX, z: b.maxZ - se }, { x: b.maxX - se, z: b.maxZ });
+  } else {
+    pts.push({ x: b.maxX, z: b.maxZ });
+  }
+  if (sw > 0) {
+    pts.push({ x: b.minX + sw, z: b.maxZ }, { x: b.minX, z: b.maxZ - sw });
+  } else {
+    pts.push({ x: b.minX, z: b.maxZ });
+  }
+  return pts;
+}
+
+export const ROOM_POLYGONS: Record<RoomId, Point2D[]> = (Object.keys(ROOMS) as RoomId[]).reduce(
+  (acc, roomId) => {
+    acc[roomId] = buildRoomPolygon(roomId);
+    return acc;
+  },
+  {} as Record<RoomId, Point2D[]>
+);
+
+export function getRoomSvgPoints(roomId: RoomId): string {
+  return ROOM_POLYGONS[roomId].map((p) => `${p.x},${p.z}`).join(' ');
+}
+
 export const WALKABLE_RECTS: Rect2D[] = [
   ...Object.values(ROOMS).map((r) => ({
     id: `room_${r.id}`,
@@ -526,10 +613,21 @@ export interface WallSegmentDef {
   maxZ: number;
 }
 
+function isPointInsideRectWithChamfers(x: number, z: number, r: Rect2D): boolean {
+  if (x < r.minX || x > r.maxX || z < r.minZ || z > r.maxZ) return false;
+  if (!r.roomId) return true;
+  const ch = ROOM_CHAMFERS[r.roomId];
+  if (!ch) return true;
+  if (ch.nw && x - r.minX + (z - r.minZ) < ch.nw) return false;
+  if (ch.ne && r.maxX - x + (z - r.minZ) < ch.ne) return false;
+  if (ch.sw && x - r.minX + (r.maxZ - z) < ch.sw) return false;
+  if (ch.se && r.maxX - x + (r.maxZ - z) < ch.se) return false;
+  return true;
+}
+
 function isInsideWalkableUnion(x: number, z: number): boolean {
   for (let i = 0; i < WALKABLE_RECTS.length; i++) {
-    const r = WALKABLE_RECTS[i];
-    if (x >= r.minX && x <= r.maxX && z >= r.minZ && z <= r.maxZ) {
+    if (isPointInsideRectWithChamfers(x, z, WALKABLE_RECTS[i])) {
       return true;
     }
   }
@@ -539,6 +637,7 @@ function isInsideWalkableUnion(x: number, z: number): boolean {
 function generateWallGeometryAndColliders(): {
   segments: WallSegmentDef[];
   wallColliders: PropCollider[];
+  angledWalls: AngledWallDef[];
 } {
   const xSplits = Array.from(
     new Set(WALKABLE_RECTS.flatMap((r) => [r.minX, r.maxX]))
@@ -549,36 +648,122 @@ function generateWallGeometryAndColliders(): {
 
   type RawSeg = { side: 'north' | 'south' | 'west' | 'east'; coord: number; a: number; b: number };
   const rawSegs: RawSeg[] = [];
+  const angledWalls: AngledWallDef[] = [];
   const eps = 0.04;
 
   for (const r of WALKABLE_RECTS) {
-    // North edge (r.minZ) & South edge (r.maxZ)
-    const xs = [r.minX, ...xSplits.filter((v) => v > r.minX && v < r.maxX), r.maxX];
-    for (let i = 0; i < xs.length - 1; i++) {
-      const a = xs[i];
-      const b = xs[i + 1];
+    const ch = r.roomId ? ROOM_CHAMFERS[r.roomId] || {} : {};
+    const nw = ch.nw || 0;
+    const ne = ch.ne || 0;
+    const sw = ch.sw || 0;
+    const se = ch.se || 0;
+
+    // Clipped North edge [minX + nw, maxX - ne]
+    const nMin = r.minX + nw;
+    const nMax = r.maxX - ne;
+    const nxs = [nMin, ...xSplits.filter((v) => v > nMin && v < nMax), nMax];
+    for (let i = 0; i < nxs.length - 1; i++) {
+      const a = nxs[i];
+      const b = nxs[i + 1];
       if (b - a < 0.05) continue;
       const xm = (a + b) / 2;
       if (isInsideWalkableUnion(xm, r.minZ + eps) && !isInsideWalkableUnion(xm, r.minZ - eps)) {
         rawSegs.push({ side: 'north', coord: r.minZ, a, b });
       }
+    }
+
+    // Clipped South edge [minX + sw, maxX - se]
+    const sMin = r.minX + sw;
+    const sMax = r.maxX - se;
+    const sxs = [sMin, ...xSplits.filter((v) => v > sMin && v < sMax), sMax];
+    for (let i = 0; i < sxs.length - 1; i++) {
+      const a = sxs[i];
+      const b = sxs[i + 1];
+      if (b - a < 0.05) continue;
+      const xm = (a + b) / 2;
       if (isInsideWalkableUnion(xm, r.maxZ - eps) && !isInsideWalkableUnion(xm, r.maxZ + eps)) {
         rawSegs.push({ side: 'south', coord: r.maxZ, a, b });
       }
     }
 
-    // West edge (r.minX) & East edge (r.maxX)
-    const zs = [r.minZ, ...zSplits.filter((v) => v > r.minZ && v < r.maxZ), r.maxZ];
-    for (let i = 0; i < zs.length - 1; i++) {
-      const a = zs[i];
-      const b = zs[i + 1];
+    // Clipped West edge [minZ + nw, maxZ - sw]
+    const wMin = r.minZ + nw;
+    const wMax = r.maxZ - sw;
+    const wzs = [wMin, ...zSplits.filter((v) => v > wMin && v < wMax), wMax];
+    for (let i = 0; i < wzs.length - 1; i++) {
+      const a = wzs[i];
+      const b = wzs[i + 1];
       if (b - a < 0.05) continue;
       const zm = (a + b) / 2;
       if (isInsideWalkableUnion(r.minX + eps, zm) && !isInsideWalkableUnion(r.minX - eps, zm)) {
         rawSegs.push({ side: 'west', coord: r.minX, a, b });
       }
+    }
+
+    // Clipped East edge [minZ + ne, maxZ - se]
+    const eMin = r.minZ + ne;
+    const eMax = r.maxZ - se;
+    const ezs = [eMin, ...zSplits.filter((v) => v > eMin && v < eMax), eMax];
+    for (let i = 0; i < ezs.length - 1; i++) {
+      const a = ezs[i];
+      const b = ezs[i + 1];
+      if (b - a < 0.05) continue;
+      const zm = (a + b) / 2;
       if (isInsideWalkableUnion(r.maxX - eps, zm) && !isInsideWalkableUnion(r.maxX + eps, zm)) {
         rawSegs.push({ side: 'east', coord: r.maxX, a, b });
+      }
+    }
+
+    if (r.roomId) {
+      const roomDef = ROOMS[r.roomId];
+      const pushChamfer = (
+        corner: 'nw' | 'ne' | 'sw' | 'se',
+        x1: number,
+        z1: number,
+        x2: number,
+        z2: number,
+        outX: number,
+        outZ: number
+      ) => {
+        const length = Math.hypot(x2 - x1, z2 - z1);
+        const cx = (x1 + x2) / 2;
+        const cz = (z1 + z2) / 2;
+        const angleY = Math.atan2(-(z2 - z1), x2 - x1);
+        const hasWindow =
+          Boolean(roomDef.hasSpaceWindow) &&
+          ((roomDef.hasSpaceWindow === 'north' && (corner === 'nw' || corner === 'ne')) ||
+            (roomDef.hasSpaceWindow === 'south' && (corner === 'sw' || corner === 'se')) ||
+            (roomDef.hasSpaceWindow === 'west' && (corner === 'nw' || corner === 'sw')) ||
+            (roomDef.hasSpaceWindow === 'east' && (corner === 'ne' || corner === 'se')));
+        angledWalls.push({
+          id: `chamfer_${r.roomId}_${corner}`,
+          roomId: r.roomId!,
+          x1,
+          z1,
+          x2,
+          z2,
+          length,
+          cx,
+          cz,
+          outX,
+          outZ,
+          angleY,
+          hasWindow,
+        });
+      };
+
+      const invSqrt2 = Math.SQRT1_2;
+      if (nw > 0) {
+        pushChamfer('nw', r.minX, r.minZ + nw, r.minX + nw, r.minZ, -invSqrt2, -invSqrt2);
+      }
+      if (ne > 0) {
+        pushChamfer('ne', r.maxX - ne, r.minZ, r.maxX, r.minZ + ne, invSqrt2, -invSqrt2);
+      }
+      if (se > 0) {
+        pushChamfer('se', r.maxX, r.maxZ - se, r.maxX - se, r.maxZ, invSqrt2, invSqrt2);
+      }
+      if (sw > 0) {
+        pushChamfer('sw', r.minX + sw, r.maxZ, r.minX, r.maxZ - sw, -invSqrt2, invSqrt2);
       }
     }
   }
@@ -665,7 +850,6 @@ function generateWallGeometryAndColliders(): {
     ];
     for (const [sx, sz] of quadrants) {
       if (!isInsideWalkableUnion(cx + sx * 0.05, cz + sz * 0.05)) {
-        // Check if corner quadrant connects two perpendicular exterior wall faces
         const qMinX = sx < 0 ? cx - WALL_THICK : cx;
         const qMaxX = sx < 0 ? cx : cx + WALL_THICK;
         const qMinZ = sz < 0 ? cz - WALL_THICK : cz;
@@ -695,12 +879,13 @@ function generateWallGeometryAndColliders(): {
     }
   });
 
-  return { segments, wallColliders };
+  return { segments, wallColliders, angledWalls };
 }
 
 const GENERATED_WALLS = generateWallGeometryAndColliders();
 export const WALL_SEGMENTS: WallSegmentDef[] = GENERATED_WALLS.segments;
 export const WALL_COLLIDERS: PropCollider[] = GENERATED_WALLS.wallColliders;
+export const ANGLED_WALL_SEGMENTS: AngledWallDef[] = GENERATED_WALLS.angledWalls;
 
 // Door Frame Pillar Colliders matching stationBuilder.ts geometry (pillar 0.4 x 0.52 at ±(width/2 - 0.15))
 export const DOOR_PILLAR_COLLIDERS: PropCollider[] = DOORS.flatMap((d) => {
@@ -746,6 +931,29 @@ export function circleIntersectsAABB(
   return dx * dx + dz * dz < radius * radius;
 }
 
+export function circleIntersectsSegment(
+  cx: number,
+  cz: number,
+  radius: number,
+  x1: number,
+  z1: number,
+  x2: number,
+  z2: number
+): boolean {
+  const vx = x2 - x1;
+  const vz = z2 - z1;
+  const lenSq = vx * vx + vz * vz;
+  if (lenSq <= 1e-8) {
+    return (cx - x1) ** 2 + (cz - z1) ** 2 < radius * radius;
+  }
+  const t = Math.max(0, Math.min(1, ((cx - x1) * vx + (cz - z1) * vz) / lenSq));
+  const px = x1 + t * vx;
+  const pz = z1 + t * vz;
+  const dx = cx - px;
+  const dz = cz - pz;
+  return dx * dx + dz * dz < radius * radius;
+}
+
 export function getRoomAtPosition(x: number, z: number): RoomDef | null {
   for (const room of Object.values(ROOMS)) {
     const b = room.bounds;
@@ -767,6 +975,13 @@ export function isPointWalkable(
 
   for (let i = 0; i < ALL_STATIC_COLLIDERS.length; i++) {
     if (circleIntersectsAABB(x, z, radius, ALL_STATIC_COLLIDERS[i])) {
+      return false;
+    }
+  }
+
+  for (let i = 0; i < ANGLED_WALL_SEGMENTS.length; i++) {
+    const aw = ANGLED_WALL_SEGMENTS[i];
+    if (circleIntersectsSegment(x, z, radius, aw.x1, aw.z1, aw.x2, aw.z2)) {
       return false;
     }
   }
@@ -968,9 +1183,29 @@ export function resolvePlayerMovement(
       curX += stepX;
       moved = true;
     }
-    if (Math.abs(stepZ) > 1e-6 && isPointWalkable(curX, curZ + stepZ, radius, extraBlockedBoxes)) {
+    if (!moved && Math.abs(stepZ) > 1e-6 && isPointWalkable(curX, curZ + stepZ, radius, extraBlockedBoxes)) {
       curZ += stepZ;
       moved = true;
+    }
+    if (!moved) {
+      // Diagonal tangent slide for smooth movement along 45-degree chamfered walls
+      const stepLen = Math.hypot(stepX, stepZ);
+      const slideDirs: Array<[number, number]> = [
+        [stepLen * 0.7071, stepLen * 0.7071],
+        [-stepLen * 0.7071, stepLen * 0.7071],
+        [stepLen * 0.7071, -stepLen * 0.7071],
+        [-stepLen * 0.7071, -stepLen * 0.7071],
+      ];
+      for (let d = 0; d < slideDirs.length; d++) {
+        const [sx, sz] = slideDirs[d];
+        if (sx * stepX + sz * stepZ <= 0) continue;
+        if (isPointWalkable(curX + sx, curZ + sz, radius, extraBlockedBoxes)) {
+          curX += sx;
+          curZ += sz;
+          moved = true;
+          break;
+        }
+      }
     }
     if (!moved) break;
   }

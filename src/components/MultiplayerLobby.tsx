@@ -354,16 +354,21 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                           voiceControls.onToggleMic();
                         }}
                         disabled={!voiceEnabled}
+                        title={voiceControls.voiceStatusLabel || 'Kontrol Mikrofon Voice Chat'}
                         className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-bold cursor-pointer ${
                           !voiceEnabled
                             ? 'bg-slate-900 border-slate-700 text-slate-500 cursor-not-allowed'
-                            : voiceControls.micOn
-                              ? voiceControls.muted
-                                ? 'bg-amber-500/20 border-amber-400/60 text-amber-200'
-                                : voiceControls.speaking
-                                  ? 'bg-emerald-500 border-emerald-200 text-slate-950'
-                                  : 'bg-emerald-500/20 border-emerald-400/60 text-emerald-200'
-                              : 'bg-slate-800 hover:bg-slate-700 border-slate-600 text-slate-200'
+                            : voiceControls.voiceStatus === 'mic_denied' || voiceControls.voiceStatus === 'no_mic'
+                              ? 'bg-rose-950/80 border-rose-500/60 text-rose-200'
+                              : voiceControls.voiceStatus === 'mic_requesting'
+                                ? 'bg-sky-500/20 border-sky-400/60 text-sky-200'
+                                : voiceControls.micOn
+                                  ? voiceControls.muted
+                                    ? 'bg-amber-500/20 border-amber-400/60 text-amber-200'
+                                    : voiceControls.speaking
+                                      ? 'bg-emerald-500 border-emerald-200 text-slate-950'
+                                      : 'bg-emerald-500/20 border-emerald-400/60 text-emerald-200'
+                                  : 'bg-slate-800 hover:bg-slate-700 border-slate-600 text-slate-200'
                         }`}
                       >
                         {voiceControls.micOn && !voiceControls.muted ? (
@@ -371,7 +376,13 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                         ) : (
                           <MicOff className="w-3.5 h-3.5" />
                         )}
-                        {voiceControls.micOn ? (voiceControls.speaking && !voiceControls.muted ? 'Bicara' : 'Mic On') : 'On Mic'}
+                        {voiceControls.voiceStatus === 'mic_requesting'
+                          ? 'Izin Mic...'
+                          : voiceControls.micOn
+                            ? voiceControls.speaking && !voiceControls.muted
+                              ? 'Bicara'
+                              : 'Mic On'
+                            : 'On Mic'}
                       </button>
 
                       {voiceControls.micOn && (
@@ -388,6 +399,29 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                         >
                           {voiceControls.muted ? 'Unmute' : 'Mute'}
                         </button>
+                      )}
+
+                      {voiceControls.audioInputs &&
+                        voiceControls.audioInputs.length > 1 &&
+                        voiceControls.onSelectDevice && (
+                          <select
+                            value={voiceControls.selectedDeviceId || ''}
+                            onChange={(e) => voiceControls.onSelectDevice?.(e.target.value)}
+                            title="Pilih Perangkat Mikrofon"
+                            className="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-2 text-xs text-slate-200 outline-none focus:border-sky-400 max-w-[170px]"
+                          >
+                            {voiceControls.audioInputs.map((dev) => (
+                              <option key={dev.deviceId} value={dev.deviceId}>
+                                {dev.label}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+
+                      {voiceControls.voiceStatusLabel && (
+                        <span className="px-2.5 py-1.5 rounded-xl bg-slate-900/90 border border-slate-700 text-[11px] font-semibold text-sky-200">
+                          {voiceControls.voiceStatusLabel}
+                        </span>
                       )}
                     </>
                   )}
@@ -406,11 +440,21 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
               </div>
 
               {voiceControls?.micError && (
-                <div className="mb-3 bg-rose-950/90 border border-rose-500/50 text-rose-200 px-3 py-2 rounded-xl text-xs flex items-center justify-between gap-2 shrink-0">
+                <div className="mb-3 bg-rose-950/90 border border-rose-500/50 text-rose-200 px-3 py-2 rounded-xl text-xs flex flex-wrap items-center justify-between gap-2 shrink-0">
                   <span>{voiceControls.micError}</span>
-                  <button onClick={voiceControls.onClearMicError} className="underline cursor-pointer">
-                    Tutup
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {voiceControls.voiceStatus === 'voice_failed' && voiceControls.onRetryVoice && (
+                      <button
+                        onClick={voiceControls.onRetryVoice}
+                        className="px-2.5 py-1 rounded-lg bg-sky-500/20 border border-sky-400/50 text-sky-200 font-bold cursor-pointer"
+                      >
+                        Coba Sambung Lagi
+                      </button>
+                    )}
+                    <button onClick={voiceControls.onClearMicError} className="underline cursor-pointer">
+                      Tutup
+                    </button>
+                  </div>
                 </div>
               )}
 

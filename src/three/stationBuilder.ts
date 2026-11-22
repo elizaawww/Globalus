@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import {
+  ANGLED_WALL_SEGMENTS,
   DOORS,
+  ROOM_POLYGONS,
   ROOMS,
   WALKABLE_RECTS,
   WALL_COLLIDERS,
@@ -197,48 +199,85 @@ export function buildStationWorld(scene: THREE.Scene, maxAniso: number, isSoftwa
 
   const wallBoxes: THREE.Box3[] = [];
 
-  // 1. Floors, Room Neon Perimeter Strips, & Overhead Structural Beams
+  // 1. Floors, Polygonal Room Silhouettes, Room Neon Perimeter Strips, & Overhead Structural Beams
   WALKABLE_RECTS.forEach((rect) => {
     const w = rect.maxX - rect.minX;
     const d = rect.maxZ - rect.minZ;
     const cx = (rect.minX + rect.maxX) / 2;
     const cz = (rect.minZ + rect.maxZ) / 2;
 
-    const floorGeo = new THREE.BoxGeometry(w, 0.2, d);
-    scaleBoxTopBottomUv(floorGeo, w / 4, d / 4);
-    const floor = new THREE.Mesh(floorGeo, floorMat);
-    // Offset non-room corridor slabs slightly below room floor top to avoid coplanar seam Z-fighting
-    floor.position.set(cx, rect.roomId ? -0.1 : -0.106, cz);
-    floor.receiveShadow = !isSoftwareGl;
-    stationGroup.add(floor);
+    if (rect.roomId) {
+      const poly = ROOM_POLYGONS[rect.roomId];
+      const shape = new THREE.Shape();
+      poly.forEach((pt, idx) => {
+        if (idx === 0) shape.moveTo(pt.x, pt.z);
+        else shape.lineTo(pt.x, pt.z);
+      });
+      shape.closePath();
 
-    if (rect.roomId && rect.trimColor) {
-      let trimMat = trimMatCache.get(rect.trimColor);
-      if (!trimMat) {
-        trimMat = new THREE.MeshStandardMaterial({
-          color: rect.trimColor,
-          emissive: rect.trimColor,
-          emissiveIntensity: 0.95,
-          roughness: 0.25,
-        });
-        trimMatCache.set(rect.trimColor, trimMat);
+      const floorGeo = new THREE.ExtrudeGeometry(shape, { depth: 0.2, bevelEnabled: false });
+      const uv = floorGeo.attributes.uv;
+      for (let i = 0; i < uv.count; i++) {
+        uv.setXY(i, uv.getX(i) * 0.25, uv.getY(i) * 0.25);
       }
-      const stripThickness = 0.14;
-      const stripY = 0.012;
-      const sN = new THREE.Mesh(new THREE.BoxGeometry(Math.max(0.5, w - 0.6), 0.02, stripThickness), trimMat);
-      sN.position.set(cx, stripY, rect.minZ + 0.35);
-      const sS = sN.clone();
-      sS.position.z = rect.maxZ - 0.35;
-      // Shorten W/E strips so they butt cleanly inside N/S strips without overlapping at corners
-      const sW = new THREE.Mesh(new THREE.BoxGeometry(stripThickness, 0.02, Math.max(0.5, d - 0.88)), trimMat);
-      sW.position.set(rect.minX + 0.35, stripY, cz);
-      const sE = sW.clone();
-      sE.position.x = rect.maxX - 0.35;
-      stationGroup.add(sN, sS, sW, sE);
+      uv.needsUpdate = true;
 
-      const beam = new THREE.Mesh(new THREE.BoxGeometry(w, 0.28, 0.32), frameMat);
+      const floor = new THREE.Mesh(floorGeo, floorMat);
+      floor.rotation.x = Math.PI / 2;
+      floor.position.y = 0;
+      floor.receiveShadow = !isSoftwareGl;
+      stationGroup.add(floor);
+
+      if (rect.trimColor) {
+        let trimMat = trimMatCache.get(rect.trimColor);
+        if (!trimMat) {
+          trimMat = new THREE.MeshStandardMaterial({
+            color: rect.trimColor,
+            emissive: rect.trimColor,
+            emissiveIntensity: 0.95,
+            roughness: 0.25,
+          });
+          trimMatCache.set(rect.trimColor, trimMat);
+        }
+
+        // Continuous inset neon floor rim matching every edge (including 45-degree chamfers)
+        const stripY = 0.012;
+        const inset = 0.35;
+        for (let i = 0; i < poly.length; i++) {
+          const p1 = poly[i];
+          const p2 = poly[(i + 1) % poly.length];
+          const ex = p2.x - p1.x;
+          const ez = p2.z - p1.z;
+          const edgeLen = Math.hypot(ex, ez);
+          if (edgeLen < 0.4) continue;
+          // Inward normal pointing into the room center
+          let inX = -(ez / edgeLen);
+          let inZ = ex / edgeLen;
+          const mx = (p1.x + p2.x) / 2;
+          const mz = (p1.z + p2.z) / 2;
+          if ((cx - mx) * inX + (cz - mz) * inZ < 0) {
+            inX = -inX;
+            inZ = -inZ;
+          }
+          const barLen = Math.max(0.35, edgeLen - 0.55);
+          const bar = new THREE.Mesh(new THREE.BoxGeometry(barLen, 0.02, 0.13), trimMat);
+          bar.position.set(mx + inX * inset, stripY, mz + inZ * inset);
+          bar.rotation.y = Math.atan2(-ez, ex);
+          stationGroup.add(bar);
+        }
+      }
+
+      const beam = new THREE.Mesh(new THREE.BoxGeometry(Math.max(2, w - 3.6), 0.28, 0.32), frameMat);
       beam.position.set(cx, 4.25, cz);
       stationGroup.add(beam);
+    } else {
+      const floorGeo = new THREE.BoxGeometry(w, 0.2, d);
+      scaleBoxTopBottomUv(floorGeo, w / 4, d / 4);
+      const floor = new THREE.Mesh(floorGeo, floorMat);
+      // Offset non-room corridor slabs slightly below room floor top to avoid coplanar seam Z-fighting
+      floor.position.set(cx, -0.106, cz);
+      floor.receiveShadow = !isSoftwareGl;
+      stationGroup.add(floor);
     }
   });
 
@@ -314,6 +353,67 @@ export function buildStationWorld(scene: THREE.Scene, maxAniso: number, isSoftwa
         new THREE.Vector3(seg.maxX, WALL_HEIGHT, seg.maxZ)
       )
     );
+  });
+
+  // 2B. Angled Chamfered Walls & Seamless Architectural Corner Bulkheads
+  const angledSeamSeen = new Set<string>();
+  ANGLED_WALL_SEGMENTS.forEach((aw) => {
+    const group = new THREE.Group();
+    group.position.set(
+      aw.cx + aw.outX * (WALL_THICK * 0.5),
+      0,
+      aw.cz + aw.outZ * (WALL_THICK * 0.5)
+    );
+    group.rotation.y = aw.angleY;
+    group.scale.x = aw.length / 2;
+
+    if (aw.hasWindow) {
+      const low = new THREE.Mesh(lowBulkheadGeo, frameMat);
+      low.position.y = 0.525;
+      const top = new THREE.Mesh(topBeamGeo, frameMat);
+      top.position.y = WALL_HEIGHT - 0.35;
+      const glass = new THREE.Mesh(glassGeo, windowGlassMat);
+      glass.position.y = 2.275;
+      group.add(low, top, glass);
+    } else {
+      const mesh = new THREE.Mesh(solidWallGeo, wallMat);
+      mesh.position.y = WALL_HEIGHT / 2;
+      mesh.castShadow = !isSoftwareGl;
+      mesh.receiveShadow = !isSoftwareGl;
+      group.add(mesh);
+    }
+    stationGroup.add(group);
+
+    // Seal both mitered endpoints of each chamfered wall with sleek octagonal columns
+    [
+      [aw.x1, aw.z1],
+      [aw.x2, aw.z2],
+    ].forEach(([vx, vz]) => {
+      const key = `${vx.toFixed(2)}:${vz.toFixed(2)}`;
+      if (angledSeamSeen.has(key)) return;
+      angledSeamSeen.add(key);
+      const px = vx + aw.outX * (WALL_THICK * 0.32);
+      const pz = vz + aw.outZ * (WALL_THICK * 0.32);
+      const col = new THREE.Mesh(cornerPillarGeo, frameMat);
+      col.position.set(px, WALL_HEIGHT / 2, pz);
+      col.rotation.y = Math.PI / 8;
+      const ring = new THREE.Mesh(cornerRingGeo, cornerRingMat);
+      ring.position.set(px, 1.35, pz);
+      ring.rotation.y = Math.PI / 8;
+      stationGroup.add(col, ring);
+    });
+
+    // Camera occlusion boxes along the chamfered wall
+    for (const frac of [0.28, 0.72]) {
+      const bx = THREE.MathUtils.lerp(aw.x1, aw.x2, frac) + aw.outX * (WALL_THICK * 0.5);
+      const bz = THREE.MathUtils.lerp(aw.z1, aw.z2, frac) + aw.outZ * (WALL_THICK * 0.5);
+      wallBoxes.push(
+        new THREE.Box3(
+          new THREE.Vector3(bx - 0.38, 0, bz - 0.38),
+          new THREE.Vector3(bx + 0.38, WALL_HEIGHT, bz + 0.38)
+        )
+      );
+    }
   });
 
   // Render chamfered exterior octagonal corner bulkheads matching WALL_COLLIDERS

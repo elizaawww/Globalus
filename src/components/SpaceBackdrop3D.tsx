@@ -1,7 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { createEarthTexture, detectSoftwareGl } from '../three/proceduralTextures';
+import {
+  applyWebKitSafeEnvironment,
+  attachWebGLContextHandlers,
+  getSafeMaxDpr,
+  isIosOrWebKit,
+} from '../utils/platform';
 
 export const SpaceBackdrop3D: React.FC = () => {
   const mountRef = useRef<HTMLDivElement>(null);
@@ -11,17 +16,18 @@ export const SpaceBackdrop3D: React.FC = () => {
     const container = mountRef.current;
     if (!container) return;
 
+    const isSoftwareGl = detectSoftwareGl();
+    const iosWebkit = isIosOrWebKit();
     let renderer: THREE.WebGLRenderer;
     try {
-      const isSoftwareGl = detectSoftwareGl();
       renderer = new THREE.WebGLRenderer({
-        antialias: !isSoftwareGl,
-        powerPreference: 'high-performance',
+        antialias: !isSoftwareGl && !iosWebkit,
+        powerPreference: iosWebkit ? 'default' : 'high-performance',
       });
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
       renderer.toneMappingExposure = 1.15;
-      renderer.setPixelRatio(isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, 2));
+      renderer.setPixelRatio(getSafeMaxDpr('high', isSoftwareGl));
       renderer.setSize(container.clientWidth || window.innerWidth, container.clientHeight || window.innerHeight);
       container.appendChild(renderer.domElement);
     } catch {
@@ -29,15 +35,17 @@ export const SpaceBackdrop3D: React.FC = () => {
       return;
     }
 
-    const isSoftwareGl = detectSoftwareGl();
+    const detachContext = attachWebGLContextHandlers(
+      renderer.domElement,
+      () => setWebglFailed(true),
+      () => setWebglFailed(false)
+    );
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x040714);
     scene.fog = new THREE.FogExp2(0x040714, 0.008);
 
-    const pmrem = new THREE.PMREMGenerator(renderer);
-    scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    pmrem.dispose();
+    applyWebKitSafeEnvironment(renderer, scene, isSoftwareGl);
 
     const camera = new THREE.PerspectiveCamera(
       48,
@@ -221,6 +229,7 @@ export const SpaceBackdrop3D: React.FC = () => {
       disposed = true;
       cancelAnimationFrame(frameId);
       clearTimeout(frameId);
+      detachContext();
       window.removeEventListener('resize', onResize);
       renderer.dispose();
       if (renderer.domElement.parentNode === container) container.removeChild(renderer.domElement);

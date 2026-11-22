@@ -80,103 +80,106 @@ export const CustomizationScreen: React.FC<CustomizationScreenProps> = ({
   };
 
   return (
-    <div className="w-full h-full bg-[#050918] flex flex-col p-4 md:p-6 overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4 shrink-0">
-        <div>
-          <h2 className="font-display text-xl md:text-2xl font-bold text-white">
-            KUSTOMISASI ASTRONAUT
-          </h2>
-          <p className="text-xs text-slate-400">
-            Rancang tampilan kostum, helm, dan aksesori astronaut untuk Solo & Multiplayer
-          </p>
+    <div className="w-full h-full bg-[#050918] overflow-y-auto sci-scroll touch-pan-y safe-hud-inset">
+      <div className="min-h-full lg:h-full [@media(max-height:580px)]:!h-auto max-w-6xl mx-auto flex flex-col p-3 sm:p-4 md:p-5 gap-3 sm:gap-4">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-slate-800 pb-2.5 sm:pb-3 shrink-0 gap-2">
+          <div className="min-w-0">
+            <h2 className="font-display text-lg sm:text-xl md:text-2xl font-bold text-white truncate">
+              KUSTOMISASI ASTRONAUT
+            </h2>
+            <p className="text-[11px] sm:text-xs text-slate-400 truncate">
+              Rancang tampilan kostum, helm, dan aksesori astronaut untuk Solo &amp; Multiplayer
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => {
+                soundEngine.playClick();
+                onBack();
+              }}
+              className="min-h-[42px] flex items-center gap-1.5 px-3.5 sm:px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs md:text-sm font-semibold cursor-pointer"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              BACK
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => {
-              soundEngine.playClick();
-              onBack();
-            }}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs md:text-sm font-semibold cursor-pointer"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            BACK
-          </button>
-        </div>
-      </div>
 
-      {/* Main Split Landscape Layout */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-4 flex-1 min-h-0">
-        {/* Left: Live 3D Preview */}
-        <div className="md:col-span-5 bg-[#0a1229] border border-sky-500/30 rounded-2xl flex flex-col overflow-hidden relative min-h-[220px]">
-          <div className="px-4 py-2.5 border-b border-slate-800/80 flex items-center justify-between">
-            <span className="text-xs font-semibold text-sky-300">Live Preview 3D (Geser untuk Putar)</span>
-            <span className="text-xs font-bold text-white truncate max-w-[140px]">
-              {draft.name || 'Astronaut'}
-            </span>
-          </div>
-          <div className="flex-1 min-h-0">
-            <CharacterPreview3D config={draft} />
-          </div>
-          {savedNotice && (
-            <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-emerald-500 text-slate-950 px-4 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-lg">
-              <Check className="w-4 h-4" />
-              Karakter Disimpan!
+        {/* Main Responsive Layout (scrolls vertically on compact/landscape phones; fixed split on tall desktop) */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-3.5 sm:gap-4 lg:flex-1 lg:min-h-0">
+          {/* Left: Live 3D Preview */}
+          <div className="lg:col-span-5 bg-[#0a1229] border border-sky-500/30 rounded-2xl flex flex-col overflow-hidden relative h-[210px] sm:h-[250px] lg:h-auto lg:min-h-[340px]">
+            <div className="px-3.5 py-2 border-b border-slate-800/80 flex items-center justify-between shrink-0">
+              <span className="text-[11px] sm:text-xs font-semibold text-sky-300">
+                Geser Kiri/Kanan untuk Putar 3D
+              </span>
+              <span className="text-xs font-bold text-white truncate max-w-[140px]">
+                {draft.name || 'Astronaut'}
+              </span>
             </div>
-          )}
-        </div>
-
-        {/* Right: Controls */}
-        <div className="md:col-span-7 bg-[#0a1229] border border-slate-800 rounded-2xl p-4 md:p-5 flex flex-col min-h-0">
-          {/* Name Input */}
-          <div className="mb-3 shrink-0">
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-              Identitas / Nama Pemain
-            </label>
-            <div className="relative">
-              <User className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                maxLength={20}
-                value={draft.name}
-                onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-                placeholder="Masukkan nama astronaut..."
-                className="w-full bg-slate-950 border border-slate-700 focus:border-sky-400 outline-none rounded-xl pl-9 pr-4 py-2 text-sm text-white"
-              />
+            <div className="flex-1 min-h-0">
+              <CharacterPreview3D config={draft} />
             </div>
+            {savedNotice && (
+              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-emerald-500 text-slate-950 px-4 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-lg">
+                <Check className="w-4 h-4" />
+                Karakter Disimpan!
+              </div>
+            )}
           </div>
 
-          {/* Category Tabs */}
-          <div className="grid grid-cols-3 sm:grid-cols-6 gap-1 bg-slate-950 p-1 rounded-xl mb-4 shrink-0">
-            {(
-              [
-                ['color', 'Warna'],
-                ['helmet', 'Helm'],
-                ['costume', 'Kostum'],
-                ['head', 'Kepala'],
-                ['body', 'Tubuh'],
-                ['neck', 'Leher'],
-              ] as const
-            ).map(([id, label]) => (
-              <button
-                key={id}
-                onClick={() => {
-                  soundEngine.playClick();
-                  setTab(id);
-                }}
-                className={`py-2 px-2 rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap ${
-                  tab === id
-                    ? 'bg-sky-500 text-slate-950'
-                    : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          {/* Right: Controls (no inner clipping trap on mobile landscape) */}
+          <div className="lg:col-span-7 bg-[#0a1229] border border-slate-800 rounded-2xl p-3.5 sm:p-4 md:p-5 flex flex-col lg:min-h-0">
+            {/* Name Input */}
+            <div className="mb-3 shrink-0">
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                Identitas / Nama Pemain
+              </label>
+              <div className="relative">
+                <User className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  maxLength={20}
+                  value={draft.name}
+                  onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                  placeholder="Masukkan nama astronaut..."
+                  className="w-full bg-slate-950 border border-slate-700 focus:border-sky-400 outline-none rounded-xl pl-9 pr-4 py-2 text-sm text-white"
+                />
+              </div>
+            </div>
 
-          {/* Options Grid */}
-          <div className="flex-1 overflow-y-auto sci-scroll pr-1">
+            {/* Category Tabs */}
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5 bg-slate-950 p-1.5 rounded-xl mb-3.5 shrink-0">
+              {(
+                [
+                  ['color', 'Warna'],
+                  ['helmet', 'Helm'],
+                  ['costume', 'Kostum'],
+                  ['head', 'Kepala'],
+                  ['body', 'Tubuh'],
+                  ['neck', 'Leher'],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  onClick={() => {
+                    soundEngine.playClick();
+                    setTab(id);
+                  }}
+                  className={`min-h-[38px] py-2 px-2 rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap ${
+                    tab === id
+                      ? 'bg-sky-500 text-slate-950'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* Options Grid */}
+            <div className="lg:flex-1 lg:overflow-y-auto [@media(max-height:580px)]:!overflow-visible sci-scroll lg:pr-1">
             {tab === 'color' && (
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
                 {PLAYER_COLORS.map((c) => {
@@ -503,23 +506,24 @@ export const CustomizationScreen: React.FC<CustomizationScreenProps> = ({
             )}
           </div>
 
-          {/* Bottom Actions */}
-          <div className="flex items-center justify-between gap-3 pt-4 mt-4 border-t border-slate-800 shrink-0">
-            <button
-              onClick={handleReset}
-              className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold cursor-pointer"
-            >
-              <RotateCcw className="w-4 h-4" />
-              RESET
-            </button>
+            {/* Bottom Actions */}
+            <div className="flex items-center justify-between gap-3 pt-4 mt-4 pb-2 border-t border-slate-800 shrink-0">
+              <button
+                onClick={handleReset}
+                className="min-h-[44px] flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold cursor-pointer"
+              >
+                <RotateCcw className="w-4 h-4" />
+                RESET
+              </button>
 
-            <button
-              onClick={handleSave}
-              className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs md:text-sm font-display font-bold tracking-wide cursor-pointer shadow-lg shadow-emerald-500/20"
-            >
-              <Save className="w-4 h-4" />
-              SAVE CHARACTER
-            </button>
+              <button
+                onClick={handleSave}
+                className="min-h-[44px] flex items-center gap-2 px-5 sm:px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs md:text-sm font-display font-bold tracking-wide cursor-pointer shadow-lg shadow-emerald-500/20"
+              >
+                <Save className="w-4 h-4" />
+                SAVE CHARACTER
+              </button>
+            </div>
           </div>
         </div>
       </div>

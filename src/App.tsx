@@ -245,6 +245,12 @@ export default function App() {
       muted: voice.muted,
       speaking: voice.speaking,
       micError: voice.micError,
+      voiceStatus: voice.voiceStatus,
+      voiceStatusLabel: voice.voiceStatusLabel,
+      permissionState: voice.permissionState,
+      permissionPromptOpen: voice.permissionPromptOpen,
+      audioInputs: voice.audioInputs,
+      selectedDeviceId: voice.selectedDeviceId,
       connectedPeerIds: voice.connectedPeerIds,
       locallyMutedIds: voice.locallyMutedIds,
       onToggleMic: () => {
@@ -253,6 +259,10 @@ export default function App() {
       onToggleMute: voice.toggleMute,
       onToggleLocalMutePeer: voice.toggleLocalMutePeer,
       onClearMicError: voice.clearMicError,
+      onConfirmMicPermission: voice.confirmMicPermission,
+      onDismissMicPermission: voice.dismissMicPermission,
+      onSelectDevice: voice.selectDevice,
+      onRetryVoice: voice.retryVoiceConnections,
     }),
     [voice]
   );
@@ -1871,6 +1881,46 @@ export default function App() {
           onComplete={handleCloseTutorial}
           onSkip={handleCloseTutorial}
         />
+      )}
+
+      {/* First-Time Microphone Permission Explanation Modal */}
+      {voice.permissionPromptOpen && (
+        <div className="fixed inset-0 z-[90] bg-slate-950/80 flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-[#0a1229] border border-sky-500/50 rounded-2xl p-5 shadow-2xl space-y-4">
+            <div className="space-y-1.5">
+              <h3 className="font-display text-lg font-bold text-white">
+                Izin Mikrofon untuk Voice Chat Tim
+              </h3>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                GLOBALUS membutuhkan akses mikrofon agar rekan satu tim di room multiplayer dapat mendengar suara Anda saat fitur <strong>On Mic</strong> aktif.
+              </p>
+            </div>
+            <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3 space-y-1.5 text-[11px] text-slate-300">
+              <p>• Mikrofon dapat dimatikan atau di-mute kapan saja melalui tombol HUD.</p>
+              <p>• Jika ditolak, permainan dan chat rapat tetap berjalan normal tanpa gangguan.</p>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2.5 pt-1">
+              <button
+                onClick={() => {
+                  soundEngine.playClick();
+                  voice.dismissMicPermission();
+                }}
+                className="flex-1 min-h-[42px] py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold cursor-pointer"
+              >
+                Nanti Saja
+              </button>
+              <button
+                onClick={() => {
+                  soundEngine.playClick();
+                  voice.confirmMicPermission();
+                }}
+                className="flex-1 min-h-[42px] py-2.5 px-4 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 text-xs font-bold cursor-pointer shadow-lg shadow-sky-500/20"
+              >
+                Lanjutkan &amp; Izinkan Mic
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

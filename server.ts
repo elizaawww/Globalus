@@ -548,6 +548,16 @@ function buildRankingsResponse(entries: RankingEntry[]): RankingsResponse {
 async function startServer() {
   const app = express();
   app.use(express.json({ limit: '64kb' }));
+  app.use('/api', (req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept');
+    if (req.method === 'OPTIONS') {
+      res.status(204).end();
+      return;
+    }
+    next();
+  });
   const server = http.createServer(app);
   const wss = new WebSocketServer({ server, path: '/ws' });
 
@@ -689,6 +699,8 @@ async function startServer() {
           previewUrl: String(r.previewUrl).replace(/^http:\/\//i, 'https://'),
           artworkUrl: (r.artworkUrl100 || r.artworkUrl60 || '').replace(/^http:\/\//i, 'https://') || undefined,
           durationMs: typeof r.trackTimeMillis === 'number' ? r.trackTimeMillis : 30000,
+          previewDurationMs: 30000,
+          isPreview: true,
           source: 'itunes',
         }));
 

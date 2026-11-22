@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { soundEngine } from '../audio/soundEngine';
 import { CUTSCENES, MISSION_META, PLAYER_COLORS } from '../data/gameData';
 import {
@@ -23,6 +22,12 @@ import {
 } from '../three/characterBuilder';
 import { detectSoftwareGl } from '../three/proceduralTextures';
 import { createSparkleGuide, SparkleGuideController } from '../three/sparkleGuide';
+import {
+  applyWebKitSafeEnvironment,
+  attachWebGLContextHandlers,
+  getSafeMaxDpr,
+  isIosOrWebKit,
+} from '../utils/platform';
 import {
   buildStationWorld,
   DoorLockVisualState,
@@ -477,6 +482,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 }) => {
   const mountRef = useRef<HTMLDivElement>(null);
   const [webglError, setWebglError] = useState(false);
+  const [contextLost, setContextLost] = useState(false);
 
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
@@ -572,7 +578,20 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   const camDistRef = useRef(6.8);
   const worldRef = useRef<StationWorld | null>(null);
   const npcRigsRef = useRef<Array<{ id: NpcCharacterId | 'companion'; rig: CharacterRig; targetPos: THREE.Vector3 }>>([]);
-  const idleCrewRigsRef = useRef<Array<{ rig: CharacterRig; gesture: CutsceneLine['gesture'] }>>([]);
+  const idleCrewRigsRef = useRef<
+    Array<{
+      rig: CharacterRig;
+      waypoints: Array<{ x: number; z: number; yaw: number; action: 'work' | 'panic_or_work' | 'inspect' | 'coordinate' }>;
+      waypointIdx: number;
+      phase: 'walk' | 'dwell';
+      timer: number;
+      dwellDuration: number;
+      speed: number;
+      x: number;
+      z: number;
+      yaw: number;
+    }>
+  >([]);
   const cutsceneTimeRef = useRef(0);
   const sparkleGuideRef = useRef<SparkleGuideController | null>(null);
   const prologLineKeyRef = useRef('');
@@ -654,17 +673,17 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     const q = settings.graphicsQuality || 'medium';
 
     if (q === 'low') {
-      renderer.setPixelRatio(1);
+      renderer.setPixelRatio(getSafeMaxDpr('low', isSw));
       renderer.shadowMap.enabled = false;
       keyLight.castShadow = false;
       world.starPoints.count = Math.min(world.maxStars, 180);
     } else if (q === 'medium') {
-      renderer.setPixelRatio(isSw ? 1 : Math.min(window.devicePixelRatio, 1.5));
+      renderer.setPixelRatio(getSafeMaxDpr('medium', isSw));
       renderer.shadowMap.enabled = !isSw;
       keyLight.castShadow = !isSw;
       world.starPoints.count = Math.min(world.maxStars, 360);
     } else {
-      renderer.setPixelRatio(isSw ? 1 : Math.min(window.devicePixelRatio, 2));
+      renderer.setPixelRatio(getSafeMaxDpr('high', isSw));
       renderer.shadowMap.enabled = !isSw;
       keyLight.castShadow = !isSw;
       world.starPoints.count = world.maxStars;
@@ -965,13 +984,14 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         worldRef.current.shuttleGroup.position.set(0, 6.5, 42);
       }
       const companion = buildNpcAstronaut('companion');
-      companion.root.position.set(-2.6, 0, 1.8);
+      companion.root.position.set(-2.9, 0, 2.55);
+      companion.root.rotation.y = Math.atan2(0.8, 1.2);
       companion.root.visible = initPhase === 'companion_panic' || initPhase === 'companion_leave';
       scene.add(companion.root);
       npcRigsRef.current.push({
         id: 'companion',
         rig: companion,
-        targetPos: new THREE.Vector3(-2.6, 0, 1.8),
+        targetPos: new THREE.Vector3(-2.9, 0, 2.55),
       });
     } else if (activeCutscene === 'rex') {
       // Unobstructed south aisle of Navigation Room (clear of holo table & terminals)
@@ -1063,28 +1083,29 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     if (!container) return;
 
     const isSoftwareGl = detectSoftwareGl();
+    const iosWebkit = isIosOrWebKit();
     isSoftwareGlRef.current = isSoftwareGl;
     const initQuality = settingsRef.current.graphicsQuality || 'medium';
     let renderer: THREE.WebGLRenderer;
+    let detachContextHandlers: (() => void) | null = null;
     try {
       renderer = new THREE.WebGLRenderer({
-        antialias: !isSoftwareGl,
-        powerPreference: 'high-performance',
+        antialias: !isSoftwareGl && !iosWebkit,
+        powerPreference: iosWebkit ? 'default' : 'high-performance',
       });
       rendererRef.current = renderer;
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
       renderer.toneMappingExposure = 1.12;
-      const initPr =
-        isSoftwareGl || initQuality === 'low'
-          ? 1
-          : initQuality === 'medium'
-            ? Math.min(window.devicePixelRatio, 1.5)
-            : Math.min(window.devicePixelRatio, 2);
-      renderer.setPixelRatio(initPr);
+      renderer.setPixelRatio(getSafeMaxDpr(initQuality, isSoftwareGl));
       renderer.setSize(container.clientWidth || window.innerWidth, container.clientHeight || window.innerHeight);
       renderer.shadowMap.enabled = !isSoftwareGl && initQuality !== 'low';
       renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      detachContextHandlers = attachWebGLContextHandlers(
+        renderer.domElement,
+        () => setContextLost(true),
+        () => setContextLost(false)
+      );
       container.appendChild(renderer.domElement);
     } catch {
       setWebglError(true);
@@ -1096,9 +1117,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     scene.fog = new THREE.FogExp2(0x040713, 0.0082);
     sceneRef.current = scene;
 
-    const pmrem = new THREE.PMREMGenerator(renderer);
-    scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    pmrem.dispose();
+    applyWebKitSafeEnvironment(renderer, scene, isSoftwareGl);
 
     const camera = new THREE.PerspectiveCamera(
       58,
@@ -1151,18 +1170,17 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     sparkleGuideRef.current = sparkleGuide;
     scene.add(sparkleGuide.group);
 
-    // Ambient Solo Lobby Crewmates (positioned clear of spawn & corridors; hidden in multiplayer/cutscenes)
-    const idleLobbyDefs: Array<{
+    // Live Solo Central Lobby Crewmates (patrolling & inspecting stations; hidden in multiplayer/cutscenes)
+    const liveLobbyDefs: Array<{
       config: CharacterConfig;
       subtitle: string;
-      x: number;
-      z: number;
-      yaw: number;
-      gesture: CutsceneLine['gesture'];
+      speed: number;
+      dwellDuration: number;
+      waypoints: Array<{ x: number; z: number; yaw: number; action: 'work' | 'panic_or_work' | 'inspect' | 'coordinate' }>;
     }> = [
       {
         config: {
-          name: 'KRU AULIA',
+          name: 'Aulia',
           color: 'hijau',
           helmet: 'standard_visor',
           costume: 'standard_crew',
@@ -1171,14 +1189,17 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           neck: 'none',
         },
         subtitle: 'Teknisi Radar',
-        x: -6.1,
-        z: -3.9,
-        yaw: Math.PI,
-        gesture: 'explain',
+        speed: 1.6,
+        dwellDuration: 4.5,
+        waypoints: [
+          { x: -5.6, z: -4.15, yaw: Math.PI, action: 'panic_or_work' },
+          { x: -2.6, z: -4.15, yaw: Math.PI, action: 'work' },
+          { x: -4.2, z: -2.4, yaw: Math.PI * 0.25, action: 'inspect' },
+        ],
       },
       {
         config: {
-          name: 'KRU DANI',
+          name: 'Dani',
           color: 'orange',
           helmet: 'cyber_recon',
           costume: 'tactical_armor',
@@ -1187,14 +1208,17 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           neck: 'none',
         },
         subtitle: 'Analis Jaringan',
-        x: 4.3,
-        z: -5.1,
-        yaw: Math.PI,
-        gesture: 'ponder',
+        speed: 1.75,
+        dwellDuration: 4.1,
+        waypoints: [
+          { x: 4.3, z: -5.0, yaw: Math.PI, action: 'work' },
+          { x: 6.2, z: -4.8, yaw: Math.PI, action: 'panic_or_work' },
+          { x: 3.5, z: -2.8, yaw: -Math.PI * 0.35, action: 'inspect' },
+        ],
       },
       {
         config: {
-          name: 'KRU SARI',
+          name: 'Sari',
           color: 'ungu',
           helmet: 'explorer_dome',
           costume: 'standard_crew',
@@ -1203,25 +1227,59 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           neck: 'kalung',
         },
         subtitle: 'Koordinator Dek',
-        x: 5.8,
-        z: 4.2,
-        yaw: -Math.PI * 0.65,
-        gesture: 'nod',
+        speed: 1.55,
+        dwellDuration: 4.8,
+        waypoints: [
+          { x: 5.4, z: 3.5, yaw: -Math.PI * 0.72, action: 'coordinate' },
+          { x: 2.5, z: 3.8, yaw: -Math.PI * 0.85, action: 'panic_or_work' },
+          { x: 4.9, z: 1.8, yaw: -Math.PI * 0.55, action: 'inspect' },
+        ],
+      },
+      {
+        config: {
+          name: 'Raka',
+          color: 'biru',
+          helmet: 'standard_visor',
+          costume: 'tactical_armor',
+          head: 'aksesori_antariksa',
+          body: 'jaket_astronaut',
+          neck: 'none',
+        },
+        subtitle: 'Teknisi Sistem',
+        speed: 1.65,
+        dwellDuration: 4.3,
+        waypoints: [
+          { x: -3.6, z: 3.6, yaw: Math.PI * 0.75, action: 'work' },
+          { x: -6.1, z: 2.7, yaw: Math.PI, action: 'panic_or_work' },
+          { x: -3.3, z: 1.8, yaw: Math.PI * 0.5, action: 'inspect' },
+        ],
       },
     ];
-    idleCrewRigsRef.current = idleLobbyDefs.map((def) => {
+    idleCrewRigsRef.current = liveLobbyDefs.map((def, idx) => {
       const rig = buildAstronautRig(def.config, {
         showNameplate: true,
         nameplateSubtitle: def.subtitle,
       });
-      rig.root.position.set(def.x, 0, def.z);
-      rig.root.rotation.y = def.yaw;
+      const startWp = def.waypoints[0];
+      rig.root.position.set(startWp.x, 0, startWp.z);
+      rig.root.rotation.y = startWp.yaw;
       rig.root.visible = !isMultiplayerRef.current && !activeCutsceneRef.current;
       scene.add(rig.root);
-      return { rig, gesture: def.gesture };
+      return {
+        rig,
+        waypoints: def.waypoints,
+        waypointIdx: 0,
+        phase: 'dwell',
+        timer: idx * 1.15,
+        dwellDuration: def.dwellDuration,
+        speed: def.speed,
+        x: startWp.x,
+        z: startWp.z,
+        yaw: startWp.yaw,
+      };
     });
 
-    if (!isSoftwareGl) {
+    if (!isSoftwareGl && !iosWebkit) {
       renderer.compile(scene, camera);
     }
 
@@ -1645,9 +1703,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         if (companionNpc) {
           if (prologPhase === 'companion_panic') {
             companionNpc.rig.root.visible = true;
-            companionNpc.targetPos.set(-2.6, 0, 1.8);
+            companionNpc.targetPos.set(-2.9, 0, 2.55);
           } else if (prologPhase === 'companion_leave') {
-            companionNpc.targetPos.set(8.2, 0, -0.4);
+            companionNpc.targetPos.set(7.4, 0, 1.85);
             companionNpc.rig.root.visible = companionNpc.rig.root.position.x < 6.8;
           } else {
             companionNpc.rig.root.visible = false;
@@ -1878,17 +1936,26 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           const dist = npc.rig.root.position.distanceTo(npc.targetPos);
           const npcMoving = dist > 0.08;
           const isCompLeave = npc.id === 'companion' && prologPhase === 'companion_leave';
+          const isCompPanic = npc.id === 'companion' && prologPhase === 'companion_panic';
           if (npcMoving) {
-            const k = 1 - Math.exp(-(isCompLeave ? 4.2 : 2.8) * dt);
+            const k = 1 - Math.exp(-(isCompLeave ? 3.8 : 3.2) * dt);
             npc.rig.root.position.lerp(npc.targetPos, k);
           }
-          const dx = isCompLeave && npcMoving
-            ? npc.targetPos.x - npc.rig.root.position.x
-            : pPos.x - npc.rig.root.position.x;
-          const dz = isCompLeave && npcMoving
-            ? npc.targetPos.z - npc.rig.root.position.z
-            : pPos.z - npc.rig.root.position.z;
-          npc.rig.root.rotation.y = Math.atan2(dx, dz);
+          let lookDx = pPos.x - npc.rig.root.position.x;
+          let lookDz = pPos.z - npc.rig.root.position.z;
+          if (isCompLeave && npcMoving) {
+            lookDx = npc.targetPos.x - npc.rig.root.position.x;
+            lookDz = npc.targetPos.z - npc.rig.root.position.z;
+          } else if (isCompPanic) {
+            // Face open SW/south toward player & camera instead of turning away
+            lookDx = pPos.x * 0.5 - npc.rig.root.position.x;
+            lookDz = pPos.z + 1.4 - npc.rig.root.position.z;
+          }
+          npc.rig.root.rotation.y = lerpYaw(
+            npc.rig.root.rotation.y,
+            Math.atan2(lookDx, lookDz),
+            1 - Math.exp(-9 * dt)
+          );
 
           const isSpeaking = csLine?.speakerId === npc.id;
           animateCharacterRig(
@@ -1901,13 +1968,78 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         });
       }
 
-      // Ambient Solo Lobby Crewmates
+      // Live Solo Lobby Crewmates (patrol stations & react dynamically to Global Network status)
       const showLobbyCrew = !isMultiplayerRef.current && !cs && Math.abs(pPos.x) < 16 && Math.abs(pPos.z) < 16;
+      const stationCrisis = completedChaptersCountRef.current < 5;
       for (let i = 0; i < idleCrewRigsRef.current.length; i++) {
         const crew = idleCrewRigsRef.current[i];
         crew.rig.root.visible = showLobbyCrew;
-        if (showLobbyCrew) {
-          animateCharacterRig(crew.rig, elapsed + i * 1.1, 'idle', dt, crew.gesture);
+        if (!showLobbyCrew) continue;
+
+        const wp = crew.waypoints[crew.waypointIdx];
+        if (crew.phase === 'walk') {
+          const dx = wp.x - crew.x;
+          const dz = wp.z - crew.z;
+          const dist = Math.hypot(dx, dz);
+          if (dist < 0.14) {
+            crew.x = wp.x;
+            crew.z = wp.z;
+            crew.phase = 'dwell';
+            crew.timer = 0;
+            animateCharacterRig(crew.rig, elapsed + i * 1.1, 'idle', dt);
+          } else {
+            // Yield gently around player without entering prop colliders
+            let dirX = dx / dist;
+            let dirZ = dz / dist;
+            const pdx = crew.x - pPos.x;
+            const pdz = crew.z - pPos.z;
+            const pDist = Math.hypot(pdx, pdz);
+            if (pDist < 1.15 && pDist > 0.01) {
+              const push = (1.15 - pDist) * 0.65;
+              dirX += (pdx / pDist) * push;
+              dirZ += (pdz / pDist) * push;
+              const nLen = Math.hypot(dirX, dirZ) || 1;
+              dirX /= nLen;
+              dirZ /= nLen;
+            }
+            const step = Math.min(dist, crew.speed * dt);
+            crew.x += dirX * step;
+            crew.z += dirZ * step;
+            crew.yaw = lerpYaw(crew.yaw, Math.atan2(dirX, dirZ), 1 - Math.exp(-9 * dt));
+            crew.rig.root.position.set(crew.x, 0, crew.z);
+            crew.rig.root.rotation.y = crew.yaw;
+            animateCharacterRig(crew.rig, elapsed + i * 1.1, 'walk', dt);
+          }
+        } else {
+          crew.timer += dt;
+          crew.yaw = lerpYaw(crew.yaw, wp.yaw, 1 - Math.exp(-7 * dt));
+          crew.rig.root.position.set(crew.x, 0, crew.z);
+          crew.rig.root.rotation.y = crew.yaw;
+
+          let activeAction: 'idle' | 'interact' = 'idle';
+          let gesture: CutsceneLine['gesture'] | undefined;
+          if (wp.action === 'work') {
+            activeAction = 'interact';
+          } else if (wp.action === 'panic_or_work') {
+            if (stationCrisis) {
+              gesture = Math.sin(elapsed * 0.7 + i) > -0.15 ? 'panic' : 'ponder';
+            } else {
+              activeAction = 'interact';
+              gesture = 'nod';
+            }
+          } else if (wp.action === 'inspect') {
+            gesture = stationCrisis ? 'ponder' : 'nod';
+          } else if (wp.action === 'coordinate') {
+            gesture = stationCrisis ? 'explain' : 'nod';
+          }
+
+          animateCharacterRig(crew.rig, elapsed + i * 1.1, activeAction, dt, gesture);
+
+          if (crew.timer >= crew.dwellDuration) {
+            crew.timer = 0;
+            crew.phase = 'walk';
+            crew.waypointIdx = (crew.waypointIdx + 1) % crew.waypoints.length;
+          }
         }
       }
 
@@ -2315,8 +2447,21 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             _csBaseCam.set(pPos.x + 2.3 * wideDistBoost, 1.9, pPos.z + 2.9 * wideDistBoost);
             resolveCollisionFreeCutsceneCamera(pPos, _csBaseCam, world.wallBoxes, _desiredCamPos);
           } else if (focus === 'companion' && speakerNpc) {
+            const isCompLeavingCam = prologPhase === 'companion_leave';
             _camTarget.set(speakerNpc.x, charTargetY, speakerNpc.z);
-            _csBaseCam.set(speakerNpc.x + 2.2 * wideDistBoost, 2.0, speakerNpc.z + 2.8 * wideDistBoost);
+            if (isCompLeavingCam) {
+              _csBaseCam.set(
+                speakerNpc.x - 2.1 * wideDistBoost,
+                2.02,
+                speakerNpc.z + 3.55 * wideDistBoost
+              );
+            } else {
+              _csBaseCam.set(
+                speakerNpc.x - 1.35 * wideDistBoost,
+                1.88,
+                speakerNpc.z + 3.4 * wideDistBoost
+              );
+            }
             resolveCollisionFreeCutsceneCamera(speakerNpc, _csBaseCam, world.wallBoxes, _desiredCamPos);
           } else if (focus === 'hologram') {
             _camTarget.set(0, 1.5, 0);
@@ -2581,6 +2726,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         fx.shardsMat.dispose();
       });
       eliminationEffectsRef.current = [];
+      detachContextHandlers?.();
       renderer.dispose();
       if (dom.parentNode === container) container.removeChild(dom);
     };
@@ -2599,5 +2745,26 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     );
   }
 
-  return <div ref={mountRef} className="w-full h-full relative" />;
+  return (
+    <div ref={mountRef} className="w-full h-full relative">
+      {contextLost && (
+        <div className="absolute inset-0 z-30 bg-[#050918]/92 flex items-center justify-center p-6 text-center">
+          <div className="max-w-sm bg-[#0b132b] border border-sky-500/40 rounded-2xl p-5 space-y-3 shadow-2xl">
+            <h3 className="font-display text-base font-bold text-white">
+              Menyegarkan Tampilan 3D...
+            </h3>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Memori grafis perangkat sedang memulihkan konteks WebGL. Tekan tombol di bawah jika belum kembali otomatis.
+            </p>
+            <button
+              onClick={() => window.location.reload()}
+              className="px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs cursor-pointer"
+            >
+              Muat Ulang Tampilan
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 };

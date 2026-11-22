@@ -8,6 +8,22 @@ export interface MusicTrackDef {
   genre: string;
   stepSec: number;
   licenseNote: string;
+  cycleSteps: number;
+}
+
+export interface MusicPlaybackState {
+  isExternal: boolean;
+  isPlaying: boolean;
+  isPaused: boolean;
+  isMuted: boolean;
+  loading: boolean;
+  ended: boolean;
+  currentTimeSec: number;
+  durationSec: number;
+  progress: number;
+  error: string | null;
+  isPreview: boolean;
+  fullDurationSec: number;
 }
 
 export const MUSIC_TRACKS: MusicTrackDef[] = [
@@ -15,36 +31,41 @@ export const MUSIC_TRACKS: MusicTrackDef[] = [
     id: 'cosmic_drift',
     title: 'Station Hull Ambience',
     genre: 'Space Ambient · Calm Hum',
-    stepSec: 1.15,
+    stepSec: 1.25,
     licenseNote: 'Audio Bebas Royalti · Offline',
+    cycleSteps: 48,
   },
   {
     id: 'nusantara_gamelan',
     title: 'Nusantara Harmoni',
     genre: 'Indonesia · Pentatonis Synth',
-    stepSec: 0.42,
+    stepSec: 0.46,
     licenseNote: 'Audio Bebas Royalti · Offline',
+    cycleSteps: 96,
   },
   {
     id: 'seoul_neon',
     title: 'Seoul Neon Groove',
     genre: 'K-Pop Vibe · Synth-Pop',
-    stepSec: 0.34,
+    stepSec: 0.38,
     licenseNote: 'Audio Bebas Royalti · Offline',
+    cycleSteps: 112,
   },
   {
     id: 'western_sunset',
     title: 'Western Sunset Lo-Fi',
     genre: 'Western Vibe · Chill Beats',
-    stepSec: 0.48,
+    stepSec: 0.52,
     licenseNote: 'Audio Bebas Royalti · Offline',
+    cycleSteps: 84,
   },
   {
     id: 'tension_protocol',
     title: 'Starlight Protocol',
     genre: 'Electronic · Stasis Pulse',
-    stepSec: 0.38,
+    stepSec: 0.42,
     licenseNote: 'Audio Bebas Royalti · Offline',
+    cycleSteps: 96,
   },
 ];
 
@@ -76,19 +97,125 @@ class SoundEngine {
   private selectedExternalTrack: MusicSearchResult | null = null;
   private externalAudio: HTMLAudioElement | null = null;
   private externalAudioUrl: string | null = null;
+  private externalLoading = false;
+  private externalEnded = false;
+  private externalError: string | null = null;
+  private externalCurrentTime = 0;
+  private externalDuration = 0;
+
   private cutsceneDuckActive = false;
   private voiceDuckActive = false;
   private currentMode: MusicMode = 'none';
 
-  // Sample-accurate Web Audio Lookahead Scheduler (prevents interval jitter & static)
+  // Sample-accurate Web Audio Lookahead Scheduler
   private schedulerTimer: number | null = null;
   private nextStepTime = 0;
   private stepIndex = 0;
   private musicDuckUntil = 0;
   private lastSfxTime = new Map<string, number>();
+  private playbackListeners = new Set<(state: MusicPlaybackState) => void>();
 
   private nowMs(): number {
     return typeof performance !== 'undefined' ? performance.now() : Date.now();
+  }
+
+  private emitPlaybackState() {
+    if (this.playbackListeners.size === 0) return;
+    const snap = this.getPlaybackState();
+    this.playbackListeners.forEach((cb) => cb(snap));
+  }
+
+  public getPlaybackState(): MusicPlaybackState {
+    const isExternal = Boolean(this.selectedExternalTrack?.previewUrl);
+    const activeBuiltIn = MUSIC_TRACKS.find((t) => t.id === this.currentTrack) || MUSIC_TRACKS[0];
+    const builtInDuration = activeBuiltIn.stepSec * activeBuiltIn.cycleSteps;
+    const builtInCurrent =
+      ((this.stepIndex % activeBuiltIn.cycleSteps) * activeBuiltIn.stepSec) || 0;
+
+    const currentTimeSec = isExternal ? this.externalCurrentTime : builtInCurrent;
+    const durationSec = isExternal
+      ? this.externalDuration > 0
+        ? this.externalDuration
+        : (this.selectedExternalTrack?.previewDurationMs || 30000) / 1000
+      : builtInDuration;
+    const progress =
+      durationSec > 0 ? Math.max(0, Math.min(1, currentTimeSec / durationSec)) : 0;
+
+    const isPlaying =
+      this.currentMode !== 'none' &&
+      !this.muted &&
+      !this.musicMuted &&
+      !this.musicPaused &&
+      this.musicVolume > 0.01 &&
+      (!isExternal || (!this.externalEnded && !this.externalError));
+
+    return {
+      isExternal,
+      isPlaying,
+      isPaused: this.musicPaused,
+      isMuted: this.muted || this.musicMuted,
+      loading: isExternal ? this.externalLoading : false,
+      ended: isExternal ? this.externalEnded : false,
+      currentTimeSec,
+      durationSec,
+      progress,
+      error: isExternal ? this.externalError : null,
+      isPreview: Boolean(this.selectedExternalTrack?.isPreview ?? isExternal),
+      fullDurationSec:
+        isExternal && this.selectedExternalTrack?.durationMs
+          ? this.selectedExternalTrack.durationMs / 1000
+          : durationSec,
+    };
+  }
+
+  public subscribePlayback(listener: (state: MusicPlaybackState) => void): () => void {
+    this.playbackListeners.add(listener);
+    listener(this.getPlaybackState());
+    return () => {
+      this.playbackListeners.delete(listener);
+    };
+  }
+
+  public seekPlayback(seconds: number) {
+    if (!this.externalAudio || !this.selectedExternalTrack?.previewUrl) return;
+    const dur =
+      Number.isFinite(this.externalAudio.duration) && this.externalAudio.duration > 0
+        ? this.externalAudio.duration
+        : (this.selectedExternalTrack.previewDurationMs || 30000) / 1000;
+    const clamped = Math.max(0, Math.min(dur, seconds));
+    try {
+      this.externalAudio.currentTime = clamped;
+      this.externalCurrentTime = clamped;
+      if (clamped < dur - 0.15) {
+        this.externalEnded = false;
+      }
+      this.emitPlaybackState();
+    } catch {
+      // Ignore seek failures before metadata load
+    }
+  }
+
+  public replayCurrentTrack() {
+    this.externalEnded = false;
+    this.externalError = null;
+    if (this.externalAudio && this.selectedExternalTrack?.previewUrl) {
+      try {
+        this.externalAudio.currentTime = 0;
+        this.externalCurrentTime = 0;
+      } catch {
+        // ignore
+      }
+      this.musicPaused = false;
+      this.syncExternalAudioVolume();
+    } else {
+      this.stepIndex = 0;
+      this.nextStepTime = 0;
+      this.musicPaused = false;
+      const m = this.currentMode;
+      this.currentMode = 'none';
+      this.setMusicMode(m);
+    }
+    this.emitPlaybackState();
   }
 
   private canPlay(key: string, cooldownMs: number): boolean {
@@ -102,13 +229,13 @@ class SoundEngine {
   private getDuckMultiplier(): number {
     let duck = 1.0;
     if (this.voiceDuckActive) {
-      duck = Math.min(duck, 0.2);
+      duck = Math.min(duck, 0.22);
     }
     if (this.cutsceneDuckActive) {
-      duck = Math.min(duck, 0.32);
+      duck = Math.min(duck, 0.34);
     }
     if (this.nowMs() < this.musicDuckUntil) {
-      duck = Math.min(duck, 0.3);
+      duck = Math.min(duck, 0.32);
     }
     return duck;
   }
@@ -133,9 +260,60 @@ class SoundEngine {
   private applyDuckLevel() {
     const duck = this.getDuckMultiplier();
     if (this.ctx && this.musicDuckGain) {
-      this.musicDuckGain.gain.setTargetAtTime(duck, this.ctx.currentTime, 0.14);
+      this.musicDuckGain.gain.setTargetAtTime(duck, this.ctx.currentTime, 0.16);
     }
     this.syncExternalAudioVolume();
+  }
+
+  private ensureExternalAudioElement(): HTMLAudioElement | null {
+    if (typeof Audio === 'undefined') return null;
+    if (this.externalAudio) return this.externalAudio;
+
+    const audio = new Audio();
+    // Never force loop=true (play track from start to finish cleanly)
+    audio.loop = false;
+    audio.preload = 'auto';
+    audio.setAttribute('playsinline', 'true');
+    audio.setAttribute('webkit-playsinline', 'true');
+
+    audio.addEventListener('loadstart', () => {
+      this.externalLoading = true;
+      this.externalError = null;
+      this.emitPlaybackState();
+    });
+    audio.addEventListener('loadedmetadata', () => {
+      this.externalLoading = false;
+      this.externalDuration =
+        Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 0;
+      this.emitPlaybackState();
+    });
+    audio.addEventListener('canplay', () => {
+      this.externalLoading = false;
+      this.emitPlaybackState();
+    });
+    audio.addEventListener('timeupdate', () => {
+      this.externalCurrentTime = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
+      if (Number.isFinite(audio.duration) && audio.duration > 0) {
+        this.externalDuration = audio.duration;
+      }
+      this.emitPlaybackState();
+    });
+    audio.addEventListener('ended', () => {
+      this.externalEnded = true;
+      this.externalLoading = false;
+      if (Number.isFinite(audio.duration) && audio.duration > 0) {
+        this.externalCurrentTime = audio.duration;
+      }
+      this.emitPlaybackState();
+    });
+    audio.addEventListener('error', () => {
+      this.externalLoading = false;
+      this.externalError = 'Audio lagu gagal dimuat dari sumber. Coba lagu lain atau pakai audio bawaan.';
+      this.emitPlaybackState();
+    });
+
+    this.externalAudio = audio;
+    return audio;
   }
 
   private syncExternalAudioVolume() {
@@ -146,9 +324,10 @@ class SoundEngine {
       !this.muted &&
       !this.musicMuted &&
       !this.musicPaused &&
+      !this.externalEnded &&
       this.musicVolume > 0.01;
     const targetVol = shouldPlay
-      ? Math.max(0, Math.min(1, this.musicVolume * 0.65 * this.getDuckMultiplier()))
+      ? Math.max(0, Math.min(1, this.musicVolume * 0.68 * this.getDuckMultiplier()))
       : 0;
     this.externalAudio.volume = targetVol;
     if (!shouldPlay) {
@@ -170,17 +349,19 @@ class SoundEngine {
       this.musicGain = this.ctx.createGain();
       this.musicDuckGain = this.ctx.createGain();
 
+      // Warm lowpass prevents bright harsh harmonics / speaker buzz on mobile speakers
       this.musicFilter = this.ctx.createBiquadFilter();
       this.musicFilter.type = 'lowpass';
-      this.musicFilter.frequency.value = 1250;
-      this.musicFilter.Q.value = 0.4;
+      this.musicFilter.frequency.value = 1120;
+      this.musicFilter.Q.value = 0.35;
 
+      // Gentle headroom limiter instead of heavy compression (eliminates rhythmic pumping/"static TV")
       this.musicCompressor = this.ctx.createDynamicsCompressor();
-      this.musicCompressor.threshold.value = -18;
-      this.musicCompressor.knee.value = 18;
-      this.musicCompressor.ratio.value = 6;
-      this.musicCompressor.attack.value = 0.008;
-      this.musicCompressor.release.value = 0.18;
+      this.musicCompressor.threshold.value = -14;
+      this.musicCompressor.knee.value = 20;
+      this.musicCompressor.ratio.value = 2.2;
+      this.musicCompressor.attack.value = 0.02;
+      this.musicCompressor.release.value = 0.25;
 
       this.sfxGain = this.ctx.createGain();
 
@@ -202,6 +383,7 @@ class SoundEngine {
   public unlock() {
     this.ensureContext();
     this.syncExternalAudioVolume();
+    this.emitPlaybackState();
   }
 
   public updateSettings(
@@ -212,7 +394,9 @@ class SoundEngine {
   ) {
     const prevTrack = this.currentTrack;
     const prevPaused = this.musicPaused;
+    const prevMuted = this.musicMuted || this.muted;
     const prevExtUrl = this.externalAudioUrl;
+
     this.musicVolume = settings.musicVolume;
     this.sfxVolume = settings.sfxVolume;
     this.muted = settings.muted;
@@ -224,38 +408,60 @@ class SoundEngine {
     const nextExtUrl = this.selectedExternalTrack?.previewUrl || null;
     if (nextExtUrl !== prevExtUrl) {
       this.externalAudioUrl = nextExtUrl;
+      this.externalCurrentTime = 0;
+      this.externalDuration = 0;
+      this.externalEnded = false;
+      this.externalError = null;
       if (this.externalAudio) {
         this.externalAudio.pause();
-        this.externalAudio.src = '';
+        this.externalAudio.removeAttribute('src');
+        this.externalAudio.load();
       }
-      if (nextExtUrl && typeof Audio !== 'undefined') {
-        if (!this.externalAudio) {
-          this.externalAudio = new Audio();
-          this.externalAudio.loop = true;
-          this.externalAudio.crossOrigin = 'anonymous';
+      if (nextExtUrl) {
+        const audio = this.ensureExternalAudioElement();
+        if (audio) {
+          this.externalLoading = true;
+          audio.src = nextExtUrl;
+          audio.load();
         }
-        this.externalAudio.src = nextExtUrl;
       }
+    } else if (prevPaused && !this.musicPaused && this.externalEnded && this.externalAudio) {
+      // Pressing Play after track finished restarts from 0:00
+      try {
+        this.externalAudio.currentTime = 0;
+        this.externalCurrentTime = 0;
+      } catch {
+        // ignore
+      }
+      this.externalEnded = false;
     }
 
     this.applyVolumes();
     this.syncExternalAudioVolume();
-    if (prevTrack !== this.currentTrack || prevPaused !== this.musicPaused || nextExtUrl !== prevExtUrl) {
+
+    const nowMuted = this.musicMuted || this.muted;
+    if (
+      prevTrack !== this.currentTrack ||
+      prevPaused !== this.musicPaused ||
+      prevMuted !== nowMuted ||
+      nextExtUrl !== prevExtUrl
+    ) {
       const m = this.currentMode;
       this.currentMode = 'none';
       this.setMusicMode(m);
     }
+    this.emitPlaybackState();
   }
 
   private applyVolumes() {
     if (!this.ctx || !this.masterGain || !this.musicGain || !this.sfxGain) return;
     const now = this.ctx.currentTime;
-    this.masterGain.gain.setTargetAtTime(this.muted ? 0 : 1, now, 0.04);
+    this.masterGain.gain.setTargetAtTime(this.muted ? 0 : 1, now, 0.05);
     const hasExt = Boolean(this.selectedExternalTrack?.previewUrl);
     const effectiveMusic =
-      this.muted || this.musicMuted || this.musicPaused || hasExt ? 0 : this.musicVolume * 0.19;
-    this.musicGain.gain.setTargetAtTime(effectiveMusic, now, 0.09);
-    this.sfxGain.gain.setTargetAtTime(this.sfxVolume * 0.6, now, 0.04);
+      this.muted || this.musicMuted || this.musicPaused || hasExt ? 0 : this.musicVolume * 0.16;
+    this.musicGain.gain.setTargetAtTime(effectiveMusic, now, 0.1);
+    this.sfxGain.gain.setTargetAtTime(this.sfxVolume * 0.58, now, 0.04);
   }
 
   private scheduleToneAt(
@@ -273,34 +479,34 @@ class SoundEngine {
     if (target === 'sfx' && this.sfxVolume <= 0.01) return;
     if (target === 'music' && (this.musicMuted || this.musicPaused || this.musicVolume <= 0.01)) return;
 
-    const safeStart = Math.max(ctx.currentTime + 0.005, startTime);
+    const safeStart = Math.max(ctx.currentTime + 0.008, startTime);
     const safeDur = Math.max(0.05, duration);
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
 
-    // Never use harsh unfiltered sawtooth in background music
-    osc.type = target === 'music' && type === 'sawtooth' ? 'triangle' : type;
-    osc.frequency.setValueAtTime(Math.max(24, freq), safeStart);
+    // Pure sine/triangle for background music eliminates intermodulation buzz
+    osc.type = target === 'music' ? (type === 'triangle' ? 'triangle' : 'sine') : type;
+    osc.frequency.setValueAtTime(Math.max(40, freq), safeStart);
     if (slideToFreq) {
-      osc.frequency.exponentialRampToValueAtTime(Math.max(24, slideToFreq), safeStart + safeDur);
+      osc.frequency.exponentialRampToValueAtTime(Math.max(40, slideToFreq), safeStart + safeDur);
     }
 
-    const attack = target === 'music' ? Math.min(0.045, safeDur * 0.25) : Math.min(0.018, safeDur * 0.2);
-    const release = target === 'music' ? Math.min(0.09, safeDur * 0.35) : Math.min(0.04, safeDur * 0.3);
+    const attack = target === 'music' ? Math.min(0.08, safeDur * 0.25) : Math.min(0.018, safeDur * 0.2);
+    const release = target === 'music' ? Math.min(0.18, safeDur * 0.4) : Math.min(0.04, safeDur * 0.3);
     const peakTime = safeStart + attack;
     const sustainEnd = Math.max(peakTime + 0.005, safeStart + safeDur - release);
     const endTime = safeStart + safeDur;
 
     gain.gain.setValueAtTime(0.0001, safeStart);
     gain.gain.linearRampToValueAtTime(Math.max(0.0004, volume), peakTime);
-    gain.gain.setValueAtTime(Math.max(0.0004, volume * 0.92), sustainEnd);
+    gain.gain.setValueAtTime(Math.max(0.0004, volume * 0.9), sustainEnd);
     gain.gain.linearRampToValueAtTime(0.0001, endTime);
 
     osc.connect(gain);
     gain.connect(target === 'sfx' ? this.sfxGain : this.musicFilter);
 
     osc.start(safeStart);
-    osc.stop(endTime + 0.02);
+    osc.stop(endTime + 0.025);
   }
 
   private playTone(
@@ -317,15 +523,19 @@ class SoundEngine {
     this.scheduleToneAt(freq, duration, type, volume, target, ctx.currentTime + delay, slideToFreq);
   }
 
-  private playNoise(duration: number, volume: number, filterFreq: number, delay = 0, bandPass = false) {
+  private playNoise(duration: number, volume: number, filterFreq: number, delay = 0, bandPass = true) {
     const ctx = this.ensureContext();
     if (!ctx || !this.sfxGain || this.muted || this.sfxVolume <= 0.01) return;
 
     const sampleCount = Math.max(1, Math.floor(ctx.sampleRate * duration));
     const buffer = ctx.createBuffer(1, sampleCount, ctx.sampleRate);
     const data = buffer.getChannelData(0);
+    // Slightly smoothed noise prevents harsh "TV static" crackle on tiny speakers
+    let prev = 0;
     for (let i = 0; i < sampleCount; i++) {
-      data[i] = Math.random() * 2 - 1;
+      const white = Math.random() * 2 - 1;
+      prev = prev * 0.45 + white * 0.55;
+      data[i] = prev;
     }
 
     const src = ctx.createBufferSource();
@@ -333,13 +543,13 @@ class SoundEngine {
 
     const filter = ctx.createBiquadFilter();
     filter.type = bandPass ? 'bandpass' : 'lowpass';
-    filter.frequency.value = filterFreq;
-    filter.Q.value = bandPass ? 1.8 : 0.8;
+    filter.frequency.value = Math.min(1400, filterFreq);
+    filter.Q.value = bandPass ? 1.5 : 0.7;
 
     const gain = ctx.createGain();
     const startTime = ctx.currentTime + delay;
     gain.gain.setValueAtTime(0.0001, startTime);
-    gain.gain.linearRampToValueAtTime(volume, startTime + Math.min(0.018, duration * 0.2));
+    gain.gain.linearRampToValueAtTime(volume * 0.75, startTime + Math.min(0.02, duration * 0.22));
     gain.gain.linearRampToValueAtTime(0.0001, startTime + duration);
 
     src.connect(filter);
@@ -363,7 +573,7 @@ class SoundEngine {
   public playGameStart() {
     if (!this.canPlay('gameStart', 1200)) return;
     this.duckMusic(1400);
-    this.playNoise(0.32, 0.14, 900, 0, true);
+    this.playNoise(0.28, 0.1, 820, 0, true);
     this.playTone(110, 0.55, 'sine', 0.25, 'sfx', 0, 55);
     this.playTone(220, 0.45, 'triangle', 0.2, 'sfx', 0.05);
     this.playTone(329.63, 0.45, 'sine', 0.18, 'sfx', 0.12);
@@ -373,7 +583,7 @@ class SoundEngine {
 
   public playDoorOpen() {
     if (!this.canPlay('doorOpen', 650)) return;
-    this.playNoise(0.14, 0.07, 1200, 0, true);
+    this.playNoise(0.12, 0.05, 950, 0, true);
     this.playTone(175, 0.22, 'sine', 0.16, 'sfx', 0, 310);
     this.playTone(330, 0.17, 'triangle', 0.09, 'sfx', 0.06, 510);
   }
@@ -439,7 +649,7 @@ class SoundEngine {
     if (!this.canPlay('footstep', cooldown)) return;
     const base = isSprinting ? 128 : 108;
     const jitter = (Math.random() - 0.5) * 16;
-    this.playNoise(0.04, isSprinting ? 0.045 : 0.032, 650, 0, true);
+    this.playNoise(0.036, isSprinting ? 0.038 : 0.028, 600, 0, true);
     this.playTone(base + jitter, 0.05, 'triangle', isSprinting ? 0.1 : 0.08, 'sfx', 0, 62);
   }
 
@@ -457,7 +667,7 @@ class SoundEngine {
 
   public playVent() {
     if (!this.canPlay('vent', 450)) return;
-    this.playNoise(0.24, 0.13, 1400, 0, true);
+    this.playNoise(0.2, 0.09, 1050, 0, true);
     this.playTone(135, 0.17, 'triangle', 0.16, 'sfx', 0, 295);
     this.playTone(320, 0.22, 'triangle', 0.14, 'sfx', 0.075, 110);
   }
@@ -495,7 +705,7 @@ class SoundEngine {
     if (!this.canPlay('voteEject', 1200)) return;
     this.duckMusic(1200);
     if (wasEjected) {
-      this.playNoise(0.55, 0.15, 950, 0, true);
+      this.playNoise(0.45, 0.1, 820, 0, true);
       this.playTone(440, 0.55, 'triangle', 0.18, 'sfx', 0, 110);
       this.playTone(130.81, 0.65, 'sine', 0.22, 'sfx', 0.18, 55);
     } else {
@@ -507,7 +717,7 @@ class SoundEngine {
   public playEliminate() {
     if (!this.canPlay('eliminate', 650)) return;
     this.duckMusic(900);
-    this.playNoise(0.18, 0.18, 600, 0, false);
+    this.playNoise(0.16, 0.11, 520, 0, true);
     this.playTone(190, 0.34, 'triangle', 0.2, 'sfx', 0, 62);
     this.playTone(430, 0.26, 'sine', 0.2, 'sfx', 0.02, 130);
     this.playTone(110, 0.45, 'sine', 0.22, 'sfx', 0.08, 55);
@@ -550,38 +760,43 @@ class SoundEngine {
     if (this.selectedExternalTrack?.previewUrl) return;
     if (this.nowMs() < this.musicDuckUntil) return;
 
+    // Non-overlapping warm notes (duration <= 0.86 * stepSec) eliminate beating/buzz on mobile speakers
     if (mode === 'home') {
-      // Soft space-station hull drone & subtle telemetry tone (non-intrusive)
-      const roots = [65.41, 73.42, 65.41, 61.74];
-      const f = roots[stepIdx % roots.length];
-      this.scheduleToneAt(f, 1.8, 'sine', 0.09, 'music', time);
-      this.scheduleToneAt(f * 2, 1.6, 'sine', 0.04, 'music', time + 0.08);
+      const chords: Array<[number, number]> = [
+        [130.81, 196.0],
+        [146.83, 220.0],
+        [130.81, 196.0],
+        [123.47, 185.0],
+      ];
+      const [root, fifth] = chords[stepIdx % chords.length];
+      this.scheduleToneAt(root, 1.04, 'sine', 0.065, 'music', time);
+      this.scheduleToneAt(fifth, 0.96, 'sine', 0.032, 'music', time + 0.06);
       if (stepIdx % 2 === 1) {
-        this.scheduleToneAt(f * 3, 0.85, 'sine', 0.024, 'music', time + 0.22);
+        this.scheduleToneAt(fifth * 2, 0.65, 'sine', 0.018, 'music', time + 0.18);
       }
       return;
     }
 
     if (mode === 'discussion') {
-      const pulseBass = [98.0, 98.0, 92.5, 98.0];
+      const pulseBass = [110.0, 110.0, 103.83, 110.0];
       const idx = stepIdx % pulseBass.length;
-      this.scheduleToneAt(pulseBass[idx] * 0.65, 0.28, 'sine', 0.08, 'music', time);
+      this.scheduleToneAt(pulseBass[idx], 0.32, 'sine', 0.065, 'music', time);
       if (stepIdx % 2 === 0) {
-        this.scheduleToneAt(293.66, 0.35, 'sine', 0.028, 'music', time + 0.05);
+        this.scheduleToneAt(293.66, 0.28, 'sine', 0.024, 'music', time + 0.05);
       }
       return;
     }
 
     if (mode === 'cutscene') {
       const cinematic = [
-        [82.41, 164.81, 246.94],
-        [98.0, 196.0, 293.66],
-        [110.0, 220.0, 329.63],
-        [92.5, 185.0, 277.18],
+        [130.81, 196.0, 261.63],
+        [146.83, 220.0, 293.66],
+        [164.81, 246.94, 329.63],
+        [146.83, 220.0, 293.66],
       ];
       const c = cinematic[stepIdx % cinematic.length];
       c.forEach((f, idx) => {
-        this.scheduleToneAt(f, 1.25, 'sine', 0.055, 'music', time + idx * 0.06);
+        this.scheduleToneAt(f, 0.86, 'sine', 0.04, 'music', time + idx * 0.05);
       });
       return;
     }
@@ -591,15 +806,15 @@ class SoundEngine {
       const pelogLead = [293.66, 329.63, 440.0, 493.88, 440.0, 329.63];
       const idx = stepIdx % pelogLead.length;
       if (idx % 2 === 0) {
-        this.scheduleToneAt(73.42, 0.9, 'sine', 0.09, 'music', time);
+        this.scheduleToneAt(146.83, 0.38, 'sine', 0.055, 'music', time);
       }
-      this.scheduleToneAt(pelogLead[idx], 0.45, 'sine', 0.05, 'music', time);
+      this.scheduleToneAt(pelogLead[idx], 0.38, 'sine', 0.045, 'music', time);
     } else if (track === 'seoul_neon') {
-      const bass = [87.31, 98.0, 110.0, 98.0];
-      const lead = [349.23, 440.0, 523.25, 440.0];
+      const bass = [130.81, 146.83, 164.81, 146.83];
+      const lead = [329.63, 392.0, 440.0, 392.0];
       const idx = stepIdx % bass.length;
-      this.scheduleToneAt(bass[idx], 0.32, 'sine', 0.075, 'music', time);
-      this.scheduleToneAt(lead[idx], 0.3, 'sine', 0.045, 'music', time + 0.02);
+      this.scheduleToneAt(bass[idx], 0.3, 'sine', 0.058, 'music', time);
+      this.scheduleToneAt(lead[idx], 0.28, 'sine', 0.04, 'music', time + 0.02);
     } else if (track === 'western_sunset') {
       const chords = [
         [174.61, 220.0, 261.63],
@@ -608,22 +823,27 @@ class SoundEngine {
         [130.81, 164.81, 196.0],
       ];
       const c = chords[stepIdx % chords.length];
-      c.forEach((f, i) => this.scheduleToneAt(f, 0.95, 'sine', 0.045, 'music', time + i * 0.04));
+      c.forEach((f, i) => this.scheduleToneAt(f, 0.44, 'sine', 0.036, 'music', time + i * 0.03));
     } else if (track === 'tension_protocol') {
-      const pulse = [82.41, 82.41, 77.78, 82.41];
+      const pulse = [110.0, 110.0, 103.83, 110.0];
       const idx = stepIdx % pulse.length;
-      this.scheduleToneAt(pulse[idx], 0.32, 'sine', 0.08, 'music', time);
+      this.scheduleToneAt(pulse[idx], 0.3, 'sine', 0.06, 'music', time);
       if (stepIdx % 2 === 1) {
-        this.scheduleToneAt(pulse[idx] * 3, 0.25, 'sine', 0.028, 'music', time + 0.04);
+        this.scheduleToneAt(pulse[idx] * 2.5, 0.24, 'sine', 0.024, 'music', time + 0.04);
       }
     } else {
-      // Among Us-style calm space-station hull drone & deep harmonic hum
-      const roots = [65.41, 65.41, 58.27, 61.74];
-      const f = roots[stepIdx % roots.length];
-      this.scheduleToneAt(f, 2.1, 'sine', 0.095, 'music', time);
-      this.scheduleToneAt(f * 1.5, 1.9, 'sine', 0.042, 'music', time + 0.08);
+      // Warm non-overlapping deep ambient drone (zero beating artifacts on phone speakers)
+      const roots: Array<[number, number]> = [
+        [110.0, 164.81],
+        [110.0, 164.81],
+        [98.0, 146.83],
+        [103.83, 155.56],
+      ];
+      const [r, fifth] = roots[stepIdx % roots.length];
+      this.scheduleToneAt(r, 1.06, 'sine', 0.065, 'music', time);
+      this.scheduleToneAt(fifth, 0.96, 'sine', 0.032, 'music', time + 0.07);
       if (stepIdx % 3 === 1) {
-        this.scheduleToneAt(f * 4, 0.95, 'sine', 0.024, 'music', time + 0.25);
+        this.scheduleToneAt(r * 3, 0.72, 'sine', 0.018, 'music', time + 0.2);
       }
     }
   }
@@ -636,35 +856,42 @@ class SoundEngine {
       this.schedulerTimer = null;
     }
     this.stepIndex = 0;
+    this.nextStepTime = 0;
     this.setCutsceneDucking(mode === 'cutscene');
     this.syncExternalAudioVolume();
-    if (mode === 'none' || this.musicPaused || this.selectedExternalTrack?.previewUrl) return;
+    this.emitPlaybackState();
+    if (mode === 'none' || this.musicPaused || this.musicMuted || this.muted || this.selectedExternalTrack?.previewUrl) {
+      return;
+    }
 
     const trackDef = MUSIC_TRACKS.find((t) => t.id === this.currentTrack) || MUSIC_TRACKS[0];
     const stepSec =
       mode === 'home'
-        ? 1.15
+        ? 1.25
         : mode === 'gameplay'
           ? trackDef.stepSec
           : mode === 'discussion'
             ? 0.44
-            : 0.95;
+            : 1.05;
 
     const scheduleAheadSec = 0.16;
-    const lookaheadMs = 35;
+    const lookaheadMs = 55;
 
     this.schedulerTimer = window.setInterval(() => {
       this.applyDuckLevel();
       if (!this.ctx || this.ctx.state !== 'running') return;
       if (this.nextStepTime < this.ctx.currentTime) {
-        this.nextStepTime = this.ctx.currentTime + 0.04;
+        this.nextStepTime = this.ctx.currentTime + 0.05;
       }
       let guard = 0;
-      while (this.nextStepTime < this.ctx.currentTime + scheduleAheadSec && guard < 4) {
+      while (this.nextStepTime < this.ctx.currentTime + scheduleAheadSec && guard < 2) {
         this.scheduleMusicStep(mode, this.nextStepTime, this.stepIndex);
         this.nextStepTime += stepSec;
         this.stepIndex++;
         guard++;
+      }
+      if (guard > 0) {
+        this.emitPlaybackState();
       }
     }, lookaheadMs);
   }

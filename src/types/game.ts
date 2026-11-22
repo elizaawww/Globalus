@@ -181,6 +181,8 @@ export interface MusicSearchResult {
   artworkUrl?: string;
   previewUrl: string;
   durationMs: number;
+  previewDurationMs?: number;
+  isPreview?: boolean;
   source: 'itunes';
 }
 

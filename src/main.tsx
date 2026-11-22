@@ -4,25 +4,45 @@ import { registerSW } from 'virtual:pwa-register';
 import App from './App.tsx';
 import './index.css';
 
-if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
-  if (import.meta.env.PROD) {
-    registerSW({
-      immediate: false,
-      onRegistered(registration) {
-        if (registration) {
-          registration.update().catch(() => {});
+if (typeof window !== 'undefined') {
+  const win = window as unknown as { __globalusBootTimer?: number };
+  if (win.__globalusBootTimer) {
+    window.clearTimeout(win.__globalusBootTimer);
+  }
+  if ('serviceWorker' in navigator) {
+    const setupSw = () => {
+      try {
+        if (import.meta.env.PROD) {
+          registerSW({
+            immediate: false,
+            onRegistered(registration) {
+              if (registration) {
+                registration.update().catch(() => {});
+              }
+            },
+            onRegisterError() {
+              // Ignore SW registration issues on restricted WebKit/private tabs
+            },
+          });
+        } else {
+          navigator.serviceWorker
+            .getRegistrations()
+            .then((regs) => {
+              regs.forEach((reg) => {
+                reg.unregister().catch(() => {});
+              });
+            })
+            .catch(() => {});
         }
-      },
-    });
-  } else {
-    navigator.serviceWorker
-      .getRegistrations()
-      .then((regs) => {
-        regs.forEach((reg) => {
-          reg.unregister().catch(() => {});
-        });
-      })
-      .catch(() => {});
+      } catch {
+        // Non-fatal on restricted iOS WebViews
+      }
+    };
+    if (document.readyState === 'complete') {
+      window.setTimeout(setupSw, 300);
+    } else {
+      window.addEventListener('load', () => window.setTimeout(setupSw, 300), { once: true });
+    }
   }
 }
 

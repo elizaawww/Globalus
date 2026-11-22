@@ -14,10 +14,21 @@ import { MatchResultModal } from './components/MatchResultModal';
 import { MeetingModal } from './components/MeetingModal';
 import { MissionModal } from './components/MissionModal';
 import { MultiplayerLobby } from './components/MultiplayerLobby';
+import { MusicSearchModal } from './components/MusicSearchModal';
+import { getApiBaseUrl, RankingModal } from './components/RankingModal';
+import { SecretTvModal } from './components/SecretTvModal';
 import { TheoryBookModal } from './components/TheoryBookModal';
 import { TutorialModal } from './components/TutorialModal';
 import { VentModal } from './components/VentModal';
-import { CHAPTER_INFO, CUTSCENES, EMOTE_MAP, IMPOSTOR_CHALLENGES, INVENTORY_ITEMS, MISSION_META } from './data/gameData';
+import {
+  CHAPTER_INFO,
+  CUTSCENES,
+  EMOTE_MAP,
+  FIRST_MEETING_REACTIONS,
+  IMPOSTOR_CHALLENGES,
+  INVENTORY_ITEMS,
+  MISSION_META,
+} from './data/gameData';
 import {
   getChapterLockedDoorIds,
   getChapterLockedRooms,
@@ -50,12 +61,15 @@ import {
   InventoryItemDef,
   MissionId,
   NeckAccessoryId,
+  NpcCharacterId,
   RoomId,
   SaveState,
   ScreenView,
   TheoryBookId,
 } from './types/game';
 import {
+  CHAPTER_UNLOCKED_EMOTES,
+  createChapterReplayState,
   getChapterCutsceneId,
   getCompletedLockedRooms,
   getDefaultSaveState,
@@ -64,20 +78,40 @@ import {
   normalizeAndRecoverSaveState,
   persistSaveStateNow,
   pickChapterRewardOnce,
+  STARTER_EMOTE_IDS,
   STORAGE_KEY,
 } from './utils/progressionRecovery';
+
+const LOCAL_PLAYER_ID_KEY = 'globalus_local_player_id_v1';
+
+function getOrCreateLocalPlayerId(): string {
+  try {
+    const existing = localStorage.getItem(LOCAL_PLAYER_ID_KEY);
+    if (existing && existing.trim().length >= 4) return existing;
+    const created = `plr_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    localStorage.setItem(LOCAL_PLAYER_ID_KEY, created);
+    return created;
+  } catch {
+    return `plr_${Math.random().toString(36).slice(2, 10)}`;
+  }
+}
 
 export default function App() {
   const [saveState, setSaveState] = useState<SaveState>(loadPersistedSaveState);
   const saveStateRef = useRef<SaveState>(saveState);
   saveStateRef.current = saveState;
 
+  const [localPlayerId] = useState<string>(getOrCreateLocalPlayerId);
   const [view, setView] = useState<ScreenView>('home');
   const [gameMode, setGameMode] = useState<GameMode>('solo');
   const [customizeReturnView, setCustomizeReturnView] = useState<ScreenView>('home');
 
   const [isPaused, setIsPaused] = useState(false);
+  const [cameraMode, setCameraMode] = useState<'360' | 'topdown'>('360');
   const [inventoryOpen, setInventoryOpen] = useState(false);
+  const [showRankingModal, setShowRankingModal] = useState(false);
+  const [showMusicModal, setShowMusicModal] = useState(false);
+  const [secretTvOpen, setSecretTvOpen] = useState(false);
   const [activeMission, setActiveMission] = useState<MissionId | null>(null);
   const [activeImpChallenge, setActiveImpChallenge] = useState<ImpostorChallenge | null>(null);
   const [activeVentId, setActiveVentId] = useState<string | null>(null);
@@ -238,6 +272,7 @@ export default function App() {
     nearbyVent: null,
     nearbyStasisPod: null,
     nearbyEmergencyConsole: false,
+    nearbySecretTv: false,
     nearbyEliminateTarget: null,
   });
 
@@ -284,6 +319,60 @@ export default function App() {
       setInfoNotice((cur) => (cur === msg ? null : cur));
     }, 3800);
   }, []);
+
+  const syncRankingToServer = useCallback(
+    async (targetState?: SaveState): Promise<boolean> => {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) return false;
+      const st = targetState || saveStateRef.current;
+      const controller = new AbortController();
+      const timer = window.setTimeout(() => controller.abort(), 5000);
+      try {
+        const res = await fetch(`${getApiBaseUrl()}/api/rankings/submit`, {
+          method: 'POST',
+          signal: controller.signal,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            playerId: localPlayerId,
+            playerName: st.character.name,
+            avatarColor: st.character.color,
+            unlockedItems: st.unlockedItems,
+            unlockedEmotes: st.unlockedEmotes || STARTER_EMOTE_IDS,
+            completedChapters: st.completedChapters.length,
+            totalExp: st.totalExp,
+            bestCompletionMs: st.bestCompletionMs ?? null,
+          }),
+        });
+        if (!res.ok) return false;
+        const cur = saveStateRef.current;
+        if (cur.pendingRankingSync) {
+          const cleared: SaveState = { ...cur, pendingRankingSync: false };
+          saveStateRef.current = cleared;
+          setSaveState(cleared);
+          persistSaveStateNow(cleared);
+        }
+        return true;
+      } catch {
+        return false;
+      } finally {
+        window.clearTimeout(timer);
+      }
+    },
+    [localPlayerId]
+  );
+
+  useEffect(() => {
+    if (saveState.pendingRankingSync && (typeof navigator === 'undefined' || navigator.onLine)) {
+      void syncRankingToServer(saveState);
+    }
+    const handleOnline = () => {
+      const cur = saveStateRef.current;
+      if (cur.pendingRankingSync) {
+        void syncRankingToServer(cur);
+      }
+    };
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+  }, [syncRankingToServer, saveState.pendingRankingSync]);
 
   // React to Multiplayer server phase transitions (Central Lobby synchronized spawn & post-meeting respawn)
   const prevMpPhaseRef = useRef<string | null>(null);
@@ -362,6 +451,9 @@ export default function App() {
         !activeTheoryBook &&
         !quizOpen &&
         !inventoryOpen &&
+        !showRankingModal &&
+        !showMusicModal &&
+        !secretTvOpen &&
         !tutorialModal.open
       ) {
         setIsPaused((p) => !p);
@@ -379,12 +471,22 @@ export default function App() {
     activeTheoryBook,
     quizOpen,
     inventoryOpen,
+    showRankingModal,
+    showMusicModal,
+    secretTvOpen,
     tutorialModal.open,
   ]);
 
   const enterSoloGameplay = useCallback(
     (latest: SaveState) => {
       soundEngine.playGameStart();
+      if (!latest.runStartedAt && !latest.completedChapters.includes(5)) {
+        const started: SaveState = { ...latest, runStartedAt: Date.now() };
+        saveStateRef.current = started;
+        setSaveState(started);
+        persistSaveStateNow(started);
+        latest = started;
+      }
       setGameMode('solo');
       setIsPaused(false);
       setTeleportPos({ x: 0, z: 3.2, tick: Date.now(), skipAnim: true });
@@ -943,12 +1045,21 @@ export default function App() {
                 : 5;
       const { rewardItem, specialItem, alreadyClaimed } = pickChapterRewardOnce(
         chap,
-        prev.unlockedItems
+        prev.unlockedItems,
+        Boolean(prev.replayMode)
       );
 
       const nextUnlockedItems = Array.from(
         new Set([...prev.unlockedItems, rewardItem.id, specialItem.id])
       );
+      const chapEmote = CHAPTER_UNLOCKED_EMOTES[chap];
+      const nextUnlockedEmotes = Array.from(
+        new Set([...(prev.unlockedEmotes || STARTER_EMOTE_IDS), ...(chapEmote ? [chapEmote] : [])])
+      );
+      const npcId = cs as NpcCharacterId;
+      const nextMetNpcs = (prev.metNpcs || []).includes(npcId)
+        ? prev.metNpcs || []
+        : [...(prev.metNpcs || []), npcId];
       const nextCompletedChapters = prev.completedChapters.includes(chap)
         ? prev.completedChapters
         : [...prev.completedChapters, chap];
@@ -963,10 +1074,13 @@ export default function App() {
       const nextState: SaveState = {
         ...prev,
         unlockedItems: nextUnlockedItems,
+        unlockedEmotes: nextUnlockedEmotes,
+        metNpcs: nextMetNpcs,
         completedChapters: nextCompletedChapters,
         completedCutscenes: nextCutscenes,
         unlockedChapter: nextUnlockedChapter,
         totalExp: alreadyClaimed ? prev.totalExp : prev.totalExp + 200,
+        pendingRankingSync: true,
         activeCutsceneCheckpoint: null,
         pendingRewardChapter: alreadyClaimed ? null : chap,
         chapterProgress: {
@@ -983,6 +1097,7 @@ export default function App() {
       saveStateRef.current = nextState;
       setSaveState(nextState);
       persistSaveStateNow(nextState);
+      void syncRankingToServer(nextState);
 
       if (!alreadyClaimed) {
         setPendingReward({ chapter: chap, rewardItem, specialItem });
@@ -993,7 +1108,7 @@ export default function App() {
         setQuizOpen(true);
       }
     },
-    [showNotice]
+    [showNotice, syncRankingToServer]
   );
 
   const handleCutsceneFinish = useCallback(() => {
@@ -1049,20 +1164,50 @@ export default function App() {
   const handleFinishQuiz = (score: number, correctCount: number) => {
     setQuizOpen(false);
     const prev = saveStateRef.current;
+    const elapsedMs = prev.runStartedAt ? Math.max(15000, Date.now() - prev.runStartedAt) : null;
+    const nextBestMs = elapsedMs
+      ? prev.bestCompletionMs
+        ? Math.min(prev.bestCompletionMs, elapsedMs)
+        : elapsedMs
+      : (prev.bestCompletionMs ?? null);
+
     const next: SaveState = {
       ...prev,
       quizCompleted: true,
       quizScore: Math.max(prev.quizScore, score),
       quizCorrectCount: Math.max(prev.quizCorrectCount, correctCount),
       totalExp: prev.totalExp + Math.round(score * 3),
+      bestCompletionMs: nextBestMs,
+      replayMode: false,
+      pendingRankingSync: true,
       activeCutsceneCheckpoint: { cutsceneId: 'all_final', lineIndex: 0 },
     };
     saveStateRef.current = next;
     setSaveState(next);
     persistSaveStateNow(next);
+    void syncRankingToServer(next);
 
     setActiveCutsceneInitialLine(0);
     setActiveCutscene('all_final');
+  };
+
+  const handleSecretTvComplete = () => {
+    const prev = saveStateRef.current;
+    const nextEmotes = Array.from(
+      new Set<EmoteId>([...(prev.unlockedEmotes || STARTER_EMOTE_IDS), 'kpop_groove', 'star_hop'])
+    );
+    const next: SaveState = {
+      ...prev,
+      secretTvCompleted: true,
+      unlockedEmotes: nextEmotes,
+      totalExp: prev.totalExp + 120,
+      pendingRankingSync: true,
+    };
+    saveStateRef.current = next;
+    setSaveState(next);
+    persistSaveStateNow(next);
+    void syncRankingToServer(next);
+    showNotice('Berhasil! Emote rahasia "Cosmic Idol" & "Starlight Pop" terbuka!');
   };
 
   const handleResetProgress = () => {
@@ -1087,8 +1232,13 @@ export default function App() {
       settings: prev.settings,
       creatorInfo: prev.creatorInfo,
       unlockedItems: prev.unlockedItems,
+      unlockedEmotes: prev.unlockedEmotes || STARTER_EMOTE_IDS,
+      secretTvCompleted: Boolean(prev.secretTvCompleted),
+      metNpcs: prev.metNpcs || [],
+      bestCompletionMs: prev.bestCompletionMs ?? null,
       totalExp: prev.totalExp,
       tutorialSeen: prev.tutorialSeen,
+      runStartedAt: Date.now(),
     };
     saveStateRef.current = next;
     setSaveState(next);
@@ -1100,6 +1250,41 @@ export default function App() {
     setActiveCutsceneInitialLine(0);
     setActiveCutscene('prolog');
   };
+
+  const handleReplayChapters = () => {
+    const prev = saveStateRef.current;
+    const next = createChapterReplayState(prev);
+    saveStateRef.current = next;
+    setSaveState(next);
+    persistSaveStateNow(next);
+    setActiveMission(null);
+    setActiveTheoryBook(null);
+    setPendingReward(null);
+    setCutsceneResumePrompt(null);
+    setQuizOpen(false);
+    setGameMode('solo');
+    setIsPaused(false);
+    setTeleportPos({ x: 0, z: 3.2, tick: Date.now(), skipAnim: true });
+    setView('playing');
+    soundEngine.playGameStart();
+    setChapterIntro(1);
+    showNotice('Mode Ulangi Chapter aktif! Selesaikan Chapter 1–5 untuk koleksi item baru.');
+  };
+
+  const cutscenePrependedLines = useMemo<CutsceneLine[] | undefined>(() => {
+    if (
+      activeCutscene === 'rex' ||
+      activeCutscene === 'bima' ||
+      activeCutscene === 'fuzzy' ||
+      activeCutscene === 'bob' ||
+      activeCutscene === 'ratu_laras'
+    ) {
+      if (!(saveState.metNpcs || []).includes(activeCutscene)) {
+        return [FIRST_MEETING_REACTIONS[activeCutscene]];
+      }
+    }
+    return undefined;
+  }, [activeCutscene, saveState.metNpcs]);
 
   const isMpMeetingOpen =
     gameMode === 'multiplayer' && mp.snapshot?.phase === 'meeting' && Boolean(mp.snapshot.meeting);
@@ -1138,6 +1323,9 @@ export default function App() {
           onPlayGame={handlePlaySolo}
           onOpenMultiplayer={handleOpenMultiplayer}
           onOpenTutorial={() => setTutorialModal({ open: true, startPendingSolo: false })}
+          onOpenRanking={() => setShowRankingModal(true)}
+          onOpenMusic={() => setShowMusicModal(true)}
+          onReplayChapters={handleReplayChapters}
           onUpdateSettings={(next) => setSaveState((p) => ({ ...p, settings: next }))}
           onResetProgress={handleResetProgress}
         />
@@ -1199,6 +1387,7 @@ export default function App() {
           <GameCanvas
             character={saveState.character}
             settings={saveState.settings}
+            cameraMode={cameraMode}
             completedMissions={
               gameMode === 'multiplayer'
                 ? (mpDoneMissions as MissionId[])
@@ -1223,6 +1412,9 @@ export default function App() {
               Boolean(cutsceneResumePrompt) ||
               quizOpen ||
               inventoryOpen ||
+              showRankingModal ||
+              showMusicModal ||
+              secretTvOpen ||
               Boolean(pendingReward) ||
               Boolean(chapterIntro) ||
               isMpMeetingOpen ||
@@ -1250,6 +1442,7 @@ export default function App() {
             onInteractTerminal={handleInteractTerminal}
             onInteractBook={handleOpenBook}
             onInteractVent={handleInteractVent}
+            onInteractSecretTv={() => setSecretTvOpen(true)}
             onReportStasisPod={(podId) => mp.callMeeting('report', podId)}
             onLockedDoorBlocked={handleLockedDoorBlocked}
           />
@@ -1265,6 +1458,9 @@ export default function App() {
               activeMissionRoomId={activeMissionRoomId}
               activeTheoryBookId={activeTheoryBook}
               activeEmote={activeEmote}
+              unlockedEmotes={saveState.unlockedEmotes || STARTER_EMOTE_IDS}
+              cameraMode={cameraMode}
+              secretTvCompleted={Boolean(saveState.secretTvCompleted)}
               isMultiplayer={gameMode === 'multiplayer'}
               isOnline={mp.isOnline}
               myPlayerId={mp.playerId}
@@ -1279,7 +1475,10 @@ export default function App() {
               completedImpChallenges={mpDoneImpChallenges}
               voiceControls={voiceControls}
               onTogglePause={() => setIsPaused((p) => !p)}
+              onToggleCameraMode={() => setCameraMode((m) => (m === '360' ? 'topdown' : '360'))}
               onOpenInventory={() => setInventoryOpen(true)}
+              onOpenRanking={() => setShowRankingModal(true)}
+              onOpenMusicModal={() => setShowMusicModal(true)}
               onOpenTutorial={() => setTutorialModal({ open: true, startPendingSolo: false })}
               onResetCamera={() => setResetCameraTick((t) => t + 1)}
               onJump={() => triggerJumpRef.current?.()}
@@ -1287,6 +1486,7 @@ export default function App() {
               onInteract={handleInteractTerminal}
               onInteractBook={handleOpenBook}
               onInteractVent={handleInteractVent}
+              onInteractSecretTv={() => setSecretTvOpen(true)}
               onCallMeeting={(reason, podId) => mp.callMeeting(reason, podId)}
               onEliminateTarget={(targetId) => mp.eliminatePlayer(targetId)}
               onRetryConnect={() => mp.retryConnect()}
@@ -1530,6 +1730,7 @@ export default function App() {
             <CutsceneOverlay
               cutsceneId={activeCutscene}
               initialLineIndex={activeCutsceneInitialLine}
+              prependedLines={cutscenePrependedLines}
               onLineChange={handleCutsceneLineChange}
               onFinish={handleCutsceneFinish}
             />
@@ -1607,6 +1808,8 @@ export default function App() {
             setCustomizeReturnView('ending');
             setView('customize');
           }}
+          onOpenRanking={() => setShowRankingModal(true)}
+          onReplayChapters={handleReplayChapters}
           onPlayAgain={handlePlayAgain}
           onBackHome={() => {
             setCustomizeReturnView('home');
@@ -1624,6 +1827,40 @@ export default function App() {
             setSaveState((prev) => ({ ...prev, character: nextChar }))
           }
           onClose={() => setInventoryOpen(false)}
+        />
+      )}
+
+      {/* Global Ranking Modal */}
+      {showRankingModal && (
+        <RankingModal
+          currentPlayerId={localPlayerId}
+          currentPlayerName={saveState.character.name}
+          pendingSync={Boolean(saveState.pendingRankingSync)}
+          localBestMs={saveState.bestCompletionMs ?? null}
+          localItemCount={
+            INVENTORY_ITEMS.filter((i) => !i.isDefault && saveState.unlockedItems.includes(i.id)).length
+          }
+          localEmoteCount={(saveState.unlockedEmotes || STARTER_EMOTE_IDS).length}
+          onSyncNow={() => syncRankingToServer()}
+          onClose={() => setShowRankingModal(false)}
+        />
+      )}
+
+      {/* Full Music Search & Ambience Player Modal */}
+      {showMusicModal && (
+        <MusicSearchModal
+          settings={saveState.settings}
+          onUpdateSettings={(next) => setSaveState((p) => ({ ...p, settings: next }))}
+          onClose={() => setShowMusicModal(false)}
+        />
+      )}
+
+      {/* Secret Cultural TV Console Modal */}
+      {secretTvOpen && (
+        <SecretTvModal
+          alreadyCompleted={Boolean(saveState.secretTvCompleted)}
+          onComplete={handleSecretTvComplete}
+          onClose={() => setSecretTvOpen(false)}
         />
       )}
 

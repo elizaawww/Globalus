@@ -76,6 +76,7 @@ export interface HudLiveState {
     roomName: string;
   } | null;
   nearbyEmergencyConsole: boolean;
+  nearbySecretTv: boolean;
   nearbyEliminateTarget: {
     id: string;
     name: string;
@@ -85,6 +86,7 @@ export interface HudLiveState {
 interface GameCanvasProps {
   character: CharacterConfig;
   settings: GameSettings;
+  cameraMode?: '360' | 'topdown';
   completedMissions: MissionId[];
   unlockedChapter: ChapterId;
   completedChaptersCount?: number;
@@ -139,6 +141,7 @@ interface GameCanvasProps {
   onInteractTerminal: (roomId: RoomId, missionId?: MissionId) => void;
   onInteractBook?: (bookId: TheoryBookId) => void;
   onInteractVent?: (ventId: string) => void;
+  onInteractSecretTv?: () => void;
   onReportStasisPod?: (podId: string) => void;
   onLockedDoorBlocked?: (reason: 'chapter_locked' | 'completed_locked', doorLabel: string) => void;
 }
@@ -434,6 +437,7 @@ function buildStasisPodMesh(colorHex: number): THREE.Group {
 export const GameCanvas: React.FC<GameCanvasProps> = ({
   character,
   settings,
+  cameraMode = '360',
   completedMissions,
   unlockedChapter,
   completedChaptersCount = 0,
@@ -467,6 +471,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   onInteractTerminal,
   onInteractBook,
   onInteractVent,
+  onInteractSecretTv,
   onReportStasisPod,
   onLockedDoorBlocked,
 }) => {
@@ -475,6 +480,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
+  const cameraModeRef = useRef<'360' | 'topdown'>(cameraMode);
+  cameraModeRef.current = cameraMode;
   const completedMissionsRef = useRef(completedMissions);
   completedMissionsRef.current = completedMissions;
   const unlockedChapterRef = useRef(unlockedChapter);
@@ -541,6 +548,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   onInteractBookRef.current = onInteractBook;
   const onInteractVentRef = useRef(onInteractVent);
   onInteractVentRef.current = onInteractVent;
+  const onInteractSecretTvRef = useRef(onInteractSecretTv);
+  onInteractSecretTvRef.current = onInteractSecretTv;
   const onReportPodRef = useRef(onReportStasisPod);
   onReportPodRef.current = onReportStasisPod;
   const onSendMoveRef = useRef(onSendMove);
@@ -562,7 +571,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   const camPitchRef = useRef(0.42);
   const camDistRef = useRef(6.8);
   const worldRef = useRef<StationWorld | null>(null);
-  const npcRigsRef = useRef<Array<{ id: NpcCharacterId; rig: CharacterRig; targetPos: THREE.Vector3 }>>([]);
+  const npcRigsRef = useRef<Array<{ id: NpcCharacterId | 'companion'; rig: CharacterRig; targetPos: THREE.Vector3 }>>([]);
+  const idleCrewRigsRef = useRef<Array<{ rig: CharacterRig; gesture: CutsceneLine['gesture'] }>>([]);
   const cutsceneTimeRef = useRef(0);
   const sparkleGuideRef = useRef<SparkleGuideController | null>(null);
   const prologLineKeyRef = useRef('');
@@ -578,10 +588,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   const nearbyBookDistRef = useRef(Infinity);
   const nearbyVentRef = useRef<HudLiveState['nearbyVent']>(null);
   const nearbyPodRef = useRef<HudLiveState['nearbyStasisPod']>(null);
+  const nearbySecretTvRef = useRef(false);
   const isTouchDeviceRef = useRef(
     typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0)
   );
-  const hoveredTargetRef = useRef<{ type: 'book' | 'terminal' | 'vent'; id: string } | null>(null);
+  const hoveredTargetRef = useRef<{ type: 'book' | 'terminal' | 'vent' | 'secret_tv'; id: string } | null>(null);
 
   const localSpeakingRef = useRef(localSpeaking);
   localSpeakingRef.current = localSpeaking;
@@ -953,6 +964,15 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       if (worldRef.current) {
         worldRef.current.shuttleGroup.position.set(0, 6.5, 42);
       }
+      const companion = buildNpcAstronaut('companion');
+      companion.root.position.set(-2.6, 0, 1.8);
+      companion.root.visible = initPhase === 'companion_panic' || initPhase === 'companion_leave';
+      scene.add(companion.root);
+      npcRigsRef.current.push({
+        id: 'companion',
+        rig: companion,
+        targetPos: new THREE.Vector3(-2.6, 0, 1.8),
+      });
     } else if (activeCutscene === 'rex') {
       // Unobstructed south aisle of Navigation Room (clear of holo table & terminals)
       playerPosRef.current.set(-33.0, 0, 2.35);
@@ -1131,6 +1151,76 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     sparkleGuideRef.current = sparkleGuide;
     scene.add(sparkleGuide.group);
 
+    // Ambient Solo Lobby Crewmates (positioned clear of spawn & corridors; hidden in multiplayer/cutscenes)
+    const idleLobbyDefs: Array<{
+      config: CharacterConfig;
+      subtitle: string;
+      x: number;
+      z: number;
+      yaw: number;
+      gesture: CutsceneLine['gesture'];
+    }> = [
+      {
+        config: {
+          name: 'KRU AULIA',
+          color: 'hijau',
+          helmet: 'standard_visor',
+          costume: 'standard_crew',
+          head: 'headset',
+          body: 'backpack',
+          neck: 'none',
+        },
+        subtitle: 'Teknisi Radar',
+        x: -6.1,
+        z: -3.9,
+        yaw: Math.PI,
+        gesture: 'explain',
+      },
+      {
+        config: {
+          name: 'KRU DANI',
+          color: 'orange',
+          helmet: 'cyber_recon',
+          costume: 'tactical_armor',
+          head: 'none',
+          body: 'backpack',
+          neck: 'none',
+        },
+        subtitle: 'Analis Jaringan',
+        x: 4.3,
+        z: -5.1,
+        yaw: Math.PI,
+        gesture: 'ponder',
+      },
+      {
+        config: {
+          name: 'KRU SARI',
+          color: 'ungu',
+          helmet: 'explorer_dome',
+          costume: 'standard_crew',
+          head: 'none',
+          body: 'none',
+          neck: 'kalung',
+        },
+        subtitle: 'Koordinator Dek',
+        x: 5.8,
+        z: 4.2,
+        yaw: -Math.PI * 0.65,
+        gesture: 'nod',
+      },
+    ];
+    idleCrewRigsRef.current = idleLobbyDefs.map((def) => {
+      const rig = buildAstronautRig(def.config, {
+        showNameplate: true,
+        nameplateSubtitle: def.subtitle,
+      });
+      rig.root.position.set(def.x, 0, def.z);
+      rig.root.rotation.y = def.yaw;
+      rig.root.visible = !isMultiplayerRef.current && !activeCutsceneRef.current;
+      scene.add(rig.root);
+      return { rig, gesture: def.gesture };
+    });
+
     if (!isSoftwareGl) {
       renderer.compile(scene, camera);
     }
@@ -1169,6 +1259,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           soundEngine.playInteract();
           interactAnimUntilRef.current = performance.now() + 450;
           onInteractVentRef.current(nearbyVentRef.current.id);
+          return;
+        }
+        if (nearbySecretTvRef.current && !isMultiplayerRef.current && onInteractSecretTvRef.current) {
+          soundEngine.playInteract();
+          interactAnimUntilRef.current = performance.now() + 450;
+          onInteractSecretTvRef.current();
           return;
         }
         const hasTerm = Boolean(nearbyTerminalRef.current);
@@ -1218,10 +1314,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       );
       _hoverRaycaster.setFromCamera(_hoverNdc, camera);
       const hits = _hoverRaycaster.intersectObjects(world.interactHitMeshes, false);
-      let nextHover: { type: 'book' | 'terminal' | 'vent'; id: string } | null = null;
+      let nextHover: { type: 'book' | 'terminal' | 'vent' | 'secret_tv'; id: string } | null = null;
       if (hits.length > 0 && hits[0].distance < 22) {
         const ud = hits[0].object.userData as {
-          interactType?: 'book' | 'terminal' | 'vent';
+          interactType?: 'book' | 'terminal' | 'vent' | 'secret_tv';
           bookId?: string;
           roomId?: RoomId;
           ventId?: string;
@@ -1232,6 +1328,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           nextHover = { type: 'terminal', id: ud.roomId };
         } else if (ud.interactType === 'vent' && ud.ventId) {
           nextHover = { type: 'vent', id: ud.ventId };
+        } else if (ud.interactType === 'secret_tv') {
+          nextHover = { type: 'secret_tv', id: 'secret_tv' };
         }
       }
       hoveredTargetRef.current = nextHover;
@@ -1319,6 +1417,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           soundEngine.playInteract();
           interactAnimUntilRef.current = performance.now() + 450;
           onInteractVentRef.current(nearbyVentRef.current.id);
+        } else if (hit?.type === 'secret_tv' && nearbySecretTvRef.current && !isMultiplayerRef.current && onInteractSecretTvRef.current) {
+          soundEngine.playInteract();
+          interactAnimUntilRef.current = performance.now() + 450;
+          onInteractSecretTvRef.current();
         }
       }
     };
@@ -1423,7 +1525,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           const nx = inputX / Math.max(1, len);
           const nz = inputZ / Math.max(1, len);
 
-          const yaw = camYawRef.current;
+          const yaw = cameraModeRef.current === 'topdown' ? 0 : camYawRef.current;
           const forwardX = -Math.sin(yaw);
           const forwardZ = -Math.cos(yaw);
           const rightX = Math.cos(yaw);
@@ -1539,6 +1641,18 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           prologLineElapsedRef.current += dt;
         }
         const phaseT = prologLineElapsedRef.current;
+        const companionNpc = npcRigsRef.current.find((n) => n.id === 'companion');
+        if (companionNpc) {
+          if (prologPhase === 'companion_panic') {
+            companionNpc.rig.root.visible = true;
+            companionNpc.targetPos.set(-2.6, 0, 1.8);
+          } else if (prologPhase === 'companion_leave') {
+            companionNpc.targetPos.set(8.2, 0, -0.4);
+            companionNpc.rig.root.visible = companionNpc.rig.root.position.x < 6.8;
+          } else {
+            companionNpc.rig.root.visible = false;
+          }
+        }
 
         if (prologPhase === 'sparkle_spot') {
           const walkDur = 1.7;
@@ -1760,25 +1874,41 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           shuttle.position.y = 4.5 + Math.sin(elapsed * 2.1) * 0.25;
         }
         npcRigsRef.current.forEach((npc) => {
+          if (!npc.rig.root.visible) return;
           const dist = npc.rig.root.position.distanceTo(npc.targetPos);
           const npcMoving = dist > 0.08;
+          const isCompLeave = npc.id === 'companion' && prologPhase === 'companion_leave';
           if (npcMoving) {
-            const k = 1 - Math.exp(-2.8 * dt);
+            const k = 1 - Math.exp(-(isCompLeave ? 4.2 : 2.8) * dt);
             npc.rig.root.position.lerp(npc.targetPos, k);
           }
-          const dx = pPos.x - npc.rig.root.position.x;
-          const dz = pPos.z - npc.rig.root.position.z;
+          const dx = isCompLeave && npcMoving
+            ? npc.targetPos.x - npc.rig.root.position.x
+            : pPos.x - npc.rig.root.position.x;
+          const dz = isCompLeave && npcMoving
+            ? npc.targetPos.z - npc.rig.root.position.z
+            : pPos.z - npc.rig.root.position.z;
           npc.rig.root.rotation.y = Math.atan2(dx, dz);
 
           const isSpeaking = csLine?.speakerId === npc.id;
           animateCharacterRig(
             npc.rig,
             elapsed,
-            npcMoving ? 'walk' : 'idle',
+            npcMoving ? (isCompLeave ? 'run' : 'walk') : 'idle',
             dt,
-            isSpeaking ? csLine?.gesture : undefined
+            !npcMoving && isSpeaking ? csLine?.gesture : undefined
           );
         });
+      }
+
+      // Ambient Solo Lobby Crewmates
+      const showLobbyCrew = !isMultiplayerRef.current && !cs && Math.abs(pPos.x) < 16 && Math.abs(pPos.z) < 16;
+      for (let i = 0; i < idleCrewRigsRef.current.length; i++) {
+        const crew = idleCrewRigsRef.current[i];
+        crew.rig.root.visible = showLobbyCrew;
+        if (showLobbyCrew) {
+          animateCharacterRig(crew.rig, elapsed + i * 1.1, 'idle', dt, crew.gesture);
+        }
       }
 
       // 4. Automatic Sliding Doors, Chapter Locking & Post-Completion Sealing
@@ -2116,6 +2246,17 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       nearbyBookRef.current = foundBook;
       nearbyBookDistRef.current = bestBookDist;
 
+      // Secret Budaya Global TV Console in Central Lobby
+      const stv = world.secretTv;
+      stv.beacon.rotation.y += dt * 1.6;
+      stv.beacon.position.y = 1.9 + Math.sin(elapsed * 2.5) * 0.04;
+      const dSecretTv = Math.hypot(pPos.x - stv.position.x, pPos.z - stv.position.z);
+      const nearSecretTv = !isMp && !cs && dSecretTv < 2.95;
+      nearbySecretTvRef.current = nearSecretTv;
+      const isTvHovered = hoveredTargetRef.current?.type === 'secret_tv';
+      stv.outlineGroup.visible =
+        !isPausedRef.current && !cs && !activeBookId && !isMp && (nearSecretTv || isTvHovered);
+
       // Stasis Pods & Emergency & Eliminate detection (Multiplayer)
       let foundPod: HudLiveState['nearbyStasisPod'] = null;
       if (isMultiplayerRef.current && amAliveRef.current && !cs) {
@@ -2173,6 +2314,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             _camTarget.set(pPos.x, charTargetY, pPos.z);
             _csBaseCam.set(pPos.x + 2.3 * wideDistBoost, 1.9, pPos.z + 2.9 * wideDistBoost);
             resolveCollisionFreeCutsceneCamera(pPos, _csBaseCam, world.wallBoxes, _desiredCamPos);
+          } else if (focus === 'companion' && speakerNpc) {
+            _camTarget.set(speakerNpc.x, charTargetY, speakerNpc.z);
+            _csBaseCam.set(speakerNpc.x + 2.2 * wideDistBoost, 2.0, speakerNpc.z + 2.8 * wideDistBoost);
+            resolveCollisionFreeCutsceneCamera(speakerNpc, _csBaseCam, world.wallBoxes, _desiredCamPos);
           } else if (focus === 'hologram') {
             _camTarget.set(0, 1.5, 0);
             _desiredCamPos.set(3.8, 2.35, 4.7);
@@ -2315,6 +2460,13 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         const k = 1 - Math.exp(-4.2 * dt);
         camera.position.lerp(_desiredCamPos, k);
         camera.lookAt(_camTarget);
+      } else if (cameraModeRef.current === 'topdown') {
+        _camTarget.set(pPos.x, 0.9, pPos.z);
+        _desiredCamPos.set(pPos.x, 12.8, pPos.z + 4.4);
+        const glideRate = nowMs < postCutsceneGlideUntilRef.current ? 5.5 : 14;
+        const k = 1 - Math.exp(-glideRate * dt);
+        camera.position.lerp(_desiredCamPos, k);
+        camera.lookAt(_camTarget);
       } else {
         const camYOffset = 1.35 + pPos.y * 0.65;
         _camTarget.set(pPos.x, camYOffset, pPos.z);
@@ -2387,6 +2539,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           nearbyVent: foundVent,
           nearbyStasisPod: foundPod,
           nearbyEmergencyConsole: nearbyEmergency,
+          nearbySecretTv: nearSecretTv,
           nearbyEliminateTarget: nearbyTarget,
         });
       }
@@ -2416,6 +2569,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         scene.remove(sparkleGuideRef.current.group);
         sparkleGuideRef.current = null;
       }
+      idleCrewRigsRef.current.forEach((c) => scene.remove(c.rig.root));
+      idleCrewRigsRef.current = [];
       eliminationEffectsRef.current.forEach((fx) => {
         scene.remove(fx.group);
         fx.ring.geometry.dispose();

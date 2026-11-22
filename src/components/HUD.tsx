@@ -10,6 +10,7 @@ import {
   ChevronUp,
   Compass,
   Crosshair,
+  Eye,
   Hand,
   Headphones,
   HelpCircle,
@@ -25,12 +26,15 @@ import {
   Play,
   RefreshCw,
   RotateCcw,
+  Search,
   Settings,
   ShieldAlert,
   SkipBack,
   SkipForward,
   Smile,
   Square,
+  Trophy,
+  Tv,
   Users,
   Volume2,
   VolumeX,
@@ -43,7 +47,14 @@ import {
   ZoomOut,
 } from 'lucide-react';
 import { MUSIC_TRACKS, normalizeMusicTrackId, soundEngine } from '../audio/soundEngine';
-import { CHAPTER_INFO, EMOTES, IMPOSTOR_CHALLENGES, MISSION_META, PLAYER_COLORS } from '../data/gameData';
+import {
+  CHAPTER_INFO,
+  EMOTE_CATEGORY_LABELS,
+  EMOTES,
+  IMPOSTOR_CHALLENGES,
+  MISSION_META,
+  PLAYER_COLORS,
+} from '../data/gameData';
 import { ROOMS, VENTS, WALKABLE_RECTS } from '../data/stationLayout';
 import {
   areRequiredBooksRead,
@@ -54,6 +65,7 @@ import {
 } from '../data/theoryBooks';
 import {
   ConnectionStatus,
+  EmoteCategory,
   EmoteId,
   GameSettings,
   GraphicsQuality,
@@ -91,6 +103,9 @@ interface HUDProps {
   activeMissionRoomId?: RoomId | null;
   activeTheoryBookId?: TheoryBookId | null;
   activeEmote?: EmoteId | null;
+  unlockedEmotes?: EmoteId[];
+  cameraMode?: '360' | 'topdown';
+  secretTvCompleted?: boolean;
   // Multiplayer Props
   isMultiplayer?: boolean;
   isOnline?: boolean;
@@ -106,7 +121,10 @@ interface HUDProps {
   completedImpChallenges?: string[];
   voiceControls?: HudVoiceControls;
   onTogglePause: () => void;
+  onToggleCameraMode?: () => void;
   onOpenInventory: () => void;
+  onOpenRanking?: () => void;
+  onOpenMusicModal?: () => void;
   onOpenTutorial?: () => void;
   onResetCamera: () => void;
   onJump: () => void;
@@ -114,6 +132,7 @@ interface HUDProps {
   onInteract: (roomId: RoomId, missionId?: MissionId) => void;
   onInteractBook?: (bookId: TheoryBookId) => void;
   onInteractVent: (ventId: string) => void;
+  onInteractSecretTv?: () => void;
   onCallMeeting?: (reason: 'emergency' | 'report', podId?: string) => void;
   onEliminateTarget?: (targetId: string) => void;
   onRetryConnect?: () => void;
@@ -122,6 +141,21 @@ interface HUDProps {
   onOpenFinalQuiz: () => void;
   onBackHome: () => void;
 }
+
+const SpaceshipHullSilhouette: React.FC = () => (
+  <g opacity={0.92} pointerEvents="none">
+    <path
+      d="M 0 -72 C 12 -72 17 -62 17 -48 L 31 -46 L 31 -27 L 28 -25 L 28 -11 L 47 -9 L 47 9 L 28 11 L 28 24 L 11 24 L 8 15 L -8 15 L -11 24 L -28 24 L -28 11 L -47 9 L -47 -9 L -28 -11 L -28 -25 L -31 -27 L -31 -46 L -17 -48 C -17 -62 -12 -72 0 -72 Z"
+      fill="#071022"
+      stroke="#1e40af"
+      strokeWidth={0.9}
+      strokeLinejoin="round"
+    />
+    <rect x={-23} y={24} width={9} height={3.5} rx={1.2} fill="#0ea5e9" opacity={0.55} />
+    <rect x={14} y={24} width={9} height={3.5} rx={1.2} fill="#0ea5e9" opacity={0.55} />
+    <path d="M -9 -64 Q 0 -70 9 -64" fill="none" stroke="#38bdf8" strokeWidth={0.65} opacity={0.7} />
+  </g>
+);
 
 function getCardinalLabel(cameraYaw: number): { label: string; deg: number } {
   let deg = Math.round(((-cameraYaw * 180) / Math.PI) % 360);
@@ -141,6 +175,9 @@ export const HUD: React.FC<HUDProps> = ({
   activeMissionRoomId = null,
   activeTheoryBookId = null,
   activeEmote = null,
+  unlockedEmotes,
+  cameraMode = '360',
+  secretTvCompleted = false,
   isMultiplayer = false,
   isOnline = true,
   myPlayerId = null,
@@ -155,7 +192,10 @@ export const HUD: React.FC<HUDProps> = ({
   completedImpChallenges = [],
   voiceControls,
   onTogglePause,
+  onToggleCameraMode,
   onOpenInventory,
+  onOpenRanking,
+  onOpenMusicModal,
   onOpenTutorial,
   onResetCamera,
   onJump,
@@ -163,6 +203,7 @@ export const HUD: React.FC<HUDProps> = ({
   onInteract,
   onInteractBook,
   onInteractVent,
+  onInteractSecretTv,
   onCallMeeting,
   onEliminateTarget,
   onRetryConnect,
@@ -180,6 +221,7 @@ export const HUD: React.FC<HUDProps> = ({
   const [musicPanelOpen, setMusicPanelOpen] = useState(false);
   const [voicePanelOpen, setVoicePanelOpen] = useState(false);
   const [emotesOpen, setEmotesOpen] = useState(false);
+  const [emoteCat, setEmoteCat] = useState<EmoteCategory>('sapaan');
   const [joyVisual, setJoyVisual] = useState({ x: 0, y: 0, active: false });
   const [killCdSecs, setKillCdSecs] = useState(0);
   const joyBaseRef = useRef<HTMLDivElement>(null);
@@ -192,6 +234,15 @@ export const HUD: React.FC<HUDProps> = ({
   const chapterData = CHAPTER_INFO[saveState.unlockedChapter];
   const lockedSet = useMemo(() => new Set(lockedRooms), [lockedRooms]);
   const chapterLockedSet = useMemo(() => new Set(chapterLockedRooms), [chapterLockedRooms]);
+  const unlockedEmoteSet = useMemo(
+    () =>
+      new Set<EmoteId>(
+        unlockedEmotes && unlockedEmotes.length > 0
+          ? unlockedEmotes
+          : EMOTES.filter((e) => e.isStarter).map((e) => e.id)
+      ),
+    [unlockedEmotes]
+  );
   const readBooksArr = saveState.readBooks || [];
   const readBookSet = useMemo(() => new Set(readBooksArr), [readBooksArr]);
   const mpDoneSet = useMemo(() => new Set(completedMpMissions), [completedMpMissions]);
@@ -702,6 +753,36 @@ export const HUD: React.FC<HUDProps> = ({
             >
               <MapIcon className="w-4 h-4" />
             </button>
+            {onToggleCameraMode && (
+              <button
+                onClick={() => {
+                  soundEngine.playClick();
+                  onToggleCameraMode();
+                }}
+                className={`touch-control px-2.5 py-2 rounded-xl border flex items-center justify-center gap-1 text-[11px] font-bold cursor-pointer ${
+                  cameraMode === 'topdown'
+                    ? 'bg-sky-500 border-sky-300 text-slate-950'
+                    : 'bg-[#070d20]/90 hover:bg-slate-800 border-slate-700 text-sky-200'
+                }`}
+                title={cameraMode === 'topdown' ? 'Beralih ke Kamera 360°' : 'Beralih ke Kamera Top-Down'}
+              >
+                <Eye className="w-4 h-4" />
+                <span className="hidden sm:inline">{cameraMode === 'topdown' ? 'Top-Down' : '360°'}</span>
+              </button>
+            )}
+            {onOpenRanking && (
+              <button
+                onClick={() => {
+                  soundEngine.playClick();
+                  onOpenRanking();
+                }}
+                className="touch-control p-2 rounded-xl bg-[#070d20]/90 hover:bg-slate-800 border border-slate-700 text-amber-300 flex items-center justify-center cursor-pointer"
+                title="Ranking Global Stasiun"
+                aria-label="Ranking Global Stasiun"
+              >
+                <Trophy className="w-4 h-4" />
+              </button>
+            )}
             {!isMultiplayer && (
               <button
                 onClick={() => {
@@ -893,6 +974,19 @@ export const HUD: React.FC<HUDProps> = ({
                   );
                 })}
               </div>
+              {onOpenMusicModal && (
+                <button
+                  onClick={() => {
+                    soundEngine.playClick();
+                    setMusicPanelOpen(false);
+                    onOpenMusicModal();
+                  }}
+                  className="w-full py-2 px-3 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/50 text-sky-200 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Search className="w-3.5 h-3.5" />
+                  Cari Lagu Online &amp; Pemutar Lengkap
+                </button>
+              )}
               <p className="text-[10px] text-slate-400">
                 * Audio otomatis mengecil saat dialog, cutscene, dan voice chat.
               </p>
@@ -1020,6 +1114,7 @@ export const HUD: React.FC<HUDProps> = ({
             title="Klik untuk Peta Besar"
           >
             <svg viewBox={miniViewBox} className="w-full h-full">
+              <SpaceshipHullSilhouette />
               {WALKABLE_RECTS.map((r) => (
                 <rect
                   key={r.id}
@@ -1299,6 +1394,27 @@ export const HUD: React.FC<HUDProps> = ({
               );
             })()}
 
+            {hud.nearbySecretTv && !isMultiplayer && onInteractSecretTv && (
+              <button
+                onClick={() => {
+                  soundEngine.playInteract();
+                  onInteractSecretTv();
+                }}
+                className="pointer-events-auto min-h-[44px] flex items-center gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-pink-500 hover:bg-pink-400 text-slate-950 font-display font-bold text-[11px] sm:text-xs md:text-sm shadow-xl cursor-pointer"
+              >
+                <Tv className="w-4 h-4 shrink-0" />
+                <span className="truncate">
+                  {hud.isTouchDevice
+                    ? secretTvCompleted
+                      ? 'Tap TV Budaya Global (Selesai)'
+                      : 'Tap TV Budaya Global (Rahasia)'
+                    : secretTvCompleted
+                      ? 'Tekan E — TV Budaya Global (Selesai)'
+                      : 'Tekan E — TV Budaya Global (Rahasia)'}
+                </span>
+              </button>
+            )}
+
             {hud.nearbyEmergencyConsole && amAlive && onCallMeeting && (
               <button
                 onClick={() => {
@@ -1316,15 +1432,15 @@ export const HUD: React.FC<HUDProps> = ({
           </div>
         </div>
 
-        {/* Bottom-Right: Closable Emote Panel + Jump / Emotes / Impostor Actions */}
+        {/* Bottom-Right: Closable 6-Category 18-Emote Panel + Jump / Emotes / Impostor Actions */}
         <div className="pointer-events-auto relative flex flex-col items-end gap-2 shrink-0">
           {emotesOpen && (
-            <div className="w-60 sm:w-72 max-w-[calc(100vw-24px)] max-h-[calc(100dvh-110px)] overflow-y-auto sci-scroll bg-[#070d22]/95 border border-sky-500/45 rounded-2xl p-3 shadow-2xl space-y-2.5">
+            <div className="w-72 sm:w-80 max-w-[calc(100vw-24px)] max-h-[calc(100dvh-110px)] overflow-y-auto sci-scroll bg-[#070d22]/95 border border-sky-500/45 rounded-2xl p-3 shadow-2xl space-y-2.5">
               <div className="flex items-center justify-between border-b border-slate-800 pb-2">
                 <div className="flex items-center gap-2">
                   <Smile className="w-4 h-4 text-sky-400" />
                   <span className="font-display text-xs font-bold text-white uppercase tracking-wider">
-                    EMOTES (10)
+                    EMOTES ({unlockedEmoteSet.size}/{EMOTES.length})
                   </span>
                 </div>
                 <button
@@ -1338,27 +1454,56 @@ export const HUD: React.FC<HUDProps> = ({
                   <X className="w-3.5 h-3.5" />
                 </button>
               </div>
-              <div className="grid grid-cols-5 gap-1.5">
-                {EMOTES.map((em) => {
+              <div className="grid grid-cols-3 gap-1">
+                {(Object.keys(EMOTE_CATEGORY_LABELS) as EmoteCategory[]).map((catKey) => (
+                  <button
+                    key={catKey}
+                    type="button"
+                    onClick={() => {
+                      soundEngine.playClick();
+                      setEmoteCat(catKey);
+                    }}
+                    className={`px-1.5 py-1 rounded-lg text-[10px] font-bold truncate cursor-pointer ${
+                      emoteCat === catKey
+                        ? 'bg-sky-400 text-slate-950'
+                        : 'bg-slate-900 text-slate-300 hover:bg-slate-800'
+                    }`}
+                  >
+                    {EMOTE_CATEGORY_LABELS[catKey]}
+                  </button>
+                ))}
+              </div>
+              <div className="grid grid-cols-3 gap-1.5">
+                {EMOTES.filter((em) => em.category === emoteCat).map((em) => {
+                  const isUnlocked = unlockedEmoteSet.has(em.id);
                   const isActive = activeEmote === em.id;
                   return (
                     <button
                       key={em.id}
+                      disabled={!isUnlocked}
                       onClick={() => {
+                        if (!isUnlocked) return;
                         onTriggerEmote(em.id);
                         setEmotesOpen(false);
                       }}
-                      title={em.label}
-                      className={`min-h-[44px] flex flex-col items-center justify-center py-1.5 px-1 rounded-xl border transition-all cursor-pointer ${
-                        isActive
-                          ? 'bg-sky-500/25 border-sky-400 text-white'
-                          : 'bg-slate-900/90 hover:bg-slate-800 border-slate-700/80 text-slate-200'
+                      title={isUnlocked ? em.label : `${em.label} — ${em.unlockLabel || 'Terkunci'}`}
+                      className={`min-h-[54px] flex flex-col items-center justify-center py-1.5 px-1.5 rounded-xl border transition-all ${
+                        !isUnlocked
+                          ? 'bg-slate-950/80 border-slate-800 text-slate-500 cursor-not-allowed opacity-70'
+                          : isActive
+                            ? 'bg-sky-500/25 border-sky-400 text-white cursor-pointer'
+                            : 'bg-slate-900/90 hover:bg-slate-800 border-slate-700/80 text-slate-200 cursor-pointer'
                       }`}
                     >
-                      <span className="text-base leading-none">{em.emoji}</span>
-                      <span className="text-[9px] font-semibold truncate w-full text-center mt-1">
+                      <span className="text-base leading-none">{isUnlocked ? em.emoji : '🔒'}</span>
+                      <span className="text-[10px] font-semibold truncate w-full text-center mt-1">
                         {em.label}
                       </span>
+                      {!isUnlocked && em.unlockLabel && (
+                        <span className="text-[8px] text-amber-300/80 truncate w-full text-center">
+                          {em.unlockLabel}
+                        </span>
+                      )}
                     </button>
                   );
                 })}
@@ -1586,6 +1731,7 @@ export const HUD: React.FC<HUDProps> = ({
                   }}
                   className="w-full h-full max-h-[360px] touch-none cursor-grab active:cursor-grabbing rounded-lg bg-[#030712]"
                 >
+                  <SpaceshipHullSilhouette />
                   {WALKABLE_RECTS.map((r) => {
                     const isComp = Boolean(r.roomId && lockedSet.has(r.roomId));
                     const isChap = Boolean(r.roomId && chapterLockedSet.has(r.roomId));

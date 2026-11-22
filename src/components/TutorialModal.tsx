@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
@@ -105,8 +105,15 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({
 }) => {
   // step === -1 is the compact welcome card ("Mulai Tutorial" / "Lewati")
   const [step, setStep] = useState<number>(isFirstTime ? -1 : 0);
+  const [animTick, setAnimTick] = useState(0);
+
+  useEffect(() => {
+    const id = window.setInterval(() => setAnimTick((t) => (t + 1) % 60), 120);
+    return () => window.clearInterval(id);
+  }, []);
 
   const slide = step >= 0 ? SLIDES[step] : null;
+  const phase = animTick / 60;
 
   return (
     <div className="fixed inset-0 z-[75] bg-slate-950/90 flex items-center justify-center p-3 sm:p-5">
@@ -245,8 +252,106 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({
                 </div>
               </div>
 
-              {/* Mini Visual Diagram */}
-              <div className="bg-slate-950/90 border border-slate-800 rounded-xl p-3.5">
+              {/* Animated Cutscene-Style Visual Stage */}
+              <div className="bg-slate-950/95 border border-slate-800 rounded-xl p-3.5 space-y-3">
+                <div className="relative h-28 w-full rounded-lg overflow-hidden bg-gradient-to-r from-[#040817] via-[#0a1632] to-[#040817] border border-slate-800/90 flex items-center justify-center">
+                  <svg viewBox="0 0 420 110" className="w-full h-full">
+                    {/* Corridor grid floor */}
+                    <line x1="20" y1="88" x2="400" y2="88" stroke="#1e293b" strokeWidth="2" />
+                    <line x1="20" y1="22" x2="400" y2="22" stroke="#1e293b" strokeWidth="1.5" strokeDasharray="6 6" />
+                    {slide.visualType === 'move' && (
+                      <>
+                        {/* Moving astronaut along corridor */}
+                        <g transform={`translate(${55 + Math.sin(phase * Math.PI * 2) * 110 + 110}, 56)`}>
+                          <circle cx="0" cy="-14" r="11" fill="#38bdf8" />
+                          <rect x="-10" y="-4" width="20" height="24" rx="8" fill="#0284c7" />
+                          <ellipse cx="4" cy="-14" rx="6" ry="4" fill="#bae6fd" />
+                          <circle cx="-18" cy="4" r={3 + (animTick % 3)} fill="#7dd3fc" opacity="0.7" />
+                        </g>
+                        <text x="210" y="102" textAnchor="middle" fill="#7dd3fc" fontSize="10" fontWeight="700">
+                          WASD / Joystick · Lari · Lompat
+                        </text>
+                      </>
+                    )}
+                    {slide.visualType === 'camera' && (
+                      <>
+                        <circle cx="210" cy="56" r="34" fill="none" stroke="#8b5cf6" strokeWidth="1.5" strokeDasharray="4 4" />
+                        <g transform="translate(210, 56)">
+                          <circle cx="0" cy="-10" r="9" fill="#38bdf8" />
+                          <rect x="-8" y="0" width="16" height="18" rx="6" fill="#0284c7" />
+                        </g>
+                        <circle
+                          cx={210 + Math.cos(phase * Math.PI * 2) * 34}
+                          cy={56 + Math.sin(phase * Math.PI * 2) * 20}
+                          r="6"
+                          fill="#c4b5fd"
+                        />
+                        <text x="210" y="102" textAnchor="middle" fill="#ddd6fe" fontSize="10" fontWeight="700">
+                          Putar 360° &amp; Mode Kamera Atas (Top-Down)
+                        </text>
+                      </>
+                    )}
+                    {slide.visualType === 'rooms' && (
+                      <>
+                        {[1, 2, 3, 4, 5].map((ch, i) => {
+                          const rx = 56 + i * 74;
+                          const unlockedIdx = Math.floor(phase * 5);
+                          const done = i < unlockedIdx;
+                          const active = i === unlockedIdx;
+                          const fill = done ? '#065f46' : active ? '#78350f' : '#450a0a';
+                          const stroke = done ? '#34d399' : active ? '#fbbf24' : '#fb7185';
+                          return (
+                            <g key={ch} transform={`translate(${rx}, 52)`}>
+                              <rect x="-22" y="-22" width="44" height="44" rx="8" fill={fill} stroke={stroke} strokeWidth="2" />
+                              <text x="0" y="4" textAnchor="middle" fill="#f8fafc" fontSize="11" fontWeight="800">
+                                CH{ch}
+                              </text>
+                            </g>
+                          );
+                        })}
+                        <text x="210" y="102" textAnchor="middle" fill="#fda4af" fontSize="10" fontWeight="700">
+                          Selesaikan Chapter untuk membuka ruangan berikutnya
+                        </text>
+                      </>
+                    )}
+                    {slide.visualType === 'books' && (
+                      <>
+                        {/* Sparkle guiding astronaut to glowing book */}
+                        <g transform={`translate(${75 + phase * 185}, 56)`}>
+                          <circle cx="0" cy="-12" r="9" fill="#38bdf8" />
+                          <rect x="-8" y="-2" width="16" height="18" rx="6" fill="#0284c7" />
+                        </g>
+                        <circle
+                          cx={110 + phase * 175}
+                          cy={42 + Math.sin(phase * 12) * 6}
+                          r="6"
+                          fill="#fde68a"
+                        />
+                        <g transform="translate(325, 56)">
+                          <rect x="-15" y="-10" width="30" height="22" rx="4" fill="#f59e0b" />
+                          <rect x="-11" y="-6" width="22" height="14" rx="2" fill="#fef3c7" />
+                        </g>
+                        <text x="210" y="102" textAnchor="middle" fill="#fde68a" fontSize="10" fontWeight="700">
+                          Ikuti Sparkle → Buka &amp; Baca Buku Teori
+                        </text>
+                      </>
+                    )}
+                    {slide.visualType === 'quiz' && (
+                      <>
+                        <rect x="115" y="24" width="190" height="52" rx="10" fill="#064e3b" stroke="#34d399" strokeWidth="2" />
+                        <text x="210" y="47" textAnchor="middle" fill="#ecfdf5" fontSize="12" fontWeight="800">
+                          SKOR TARGET: 100%
+                        </text>
+                        <text x="210" y="64" textAnchor="middle" fill="#6ee7b7" fontSize="10" fontWeight="600">
+                          Buka Cutscene + Hadiah + Emote
+                        </text>
+                        <circle cx="92" cy="50" r={5 + (animTick % 4)} fill="#fbbf24" />
+                        <circle cx="328" cy="50" r={5 + ((animTick + 2) % 4)} fill="#38bdf8" />
+                      </>
+                    )}
+                  </svg>
+                </div>
+
                 {slide.visualType === 'move' && (
                   <div className="flex flex-wrap items-center justify-around gap-4 text-xs">
                     <div className="flex flex-col items-center gap-1">
@@ -268,8 +373,8 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({
                       <span className="text-[10px] text-slate-400 mt-0.5">Gerak Desktop</span>
                     </div>
                     <div className="flex flex-col items-center gap-1.5">
-                      <div className="w-14 h-14 rounded-full bg-slate-900 border-2 border-sky-400/50 flex items-center justify-center">
-                        <div className="w-6 h-6 rounded-full bg-sky-400" />
+                      <div className="w-12 h-12 rounded-full bg-slate-900 border-2 border-sky-400/50 flex items-center justify-center">
+                        <div className="w-5 h-5 rounded-full bg-sky-400" />
                       </div>
                       <span className="text-[10px] text-slate-400">Joystick Mobile</span>
                     </div>
@@ -293,8 +398,8 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({
                       <p className="text-[10px] text-slate-400">Perbesar / Perkecil</p>
                     </div>
                     <div className="px-3 py-2 rounded-lg bg-slate-900 border border-violet-400/40 text-center">
-                      <p className="font-bold text-violet-300">Tombol [R]</p>
-                      <p className="text-[10px] text-slate-400">Reset Posisi Kamera</p>
+                      <p className="font-bold text-violet-300">Tombol [R] / Atas</p>
+                      <p className="text-[10px] text-slate-400">Reset atau Mode Top-Down</p>
                     </div>
                   </div>
                 )}

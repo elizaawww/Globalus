@@ -47,11 +47,20 @@ export interface RoomGroupEntry {
   spinners: SpinnerEntry[];
 }
 
+export interface SecretTvObject {
+  position: THREE.Vector3;
+  outlineGroup: THREE.Group;
+  hitMesh: THREE.Mesh;
+  beaconMat: THREE.MeshStandardMaterial;
+  beacon: THREE.Mesh;
+}
+
 export interface FurnitureBuildResult {
   vents: VentObject[];
   theoryBooks: TheoryBookObject[];
   spinners: SpinnerEntry[];
   roomGroups: RoomGroupEntry[];
+  secretTv: SecretTvObject;
 }
 
 export function populateStationFurniture(
@@ -169,6 +178,7 @@ export function populateStationFurniture(
   const screenIneqTex = createScreenTexture('inequality');
   const screenImpactTex = createScreenTexture('impact');
   const screenInfoTex = createScreenTexture('info');
+  const screenTvCultureTex = createScreenTexture('tv_culture');
 
   const batikEmeraldTex = createBatikTexture('#065f46', '#fbbf24');
   const batikRoyalTex = createBatikTexture('#4c1d95', '#f59e0b');
@@ -199,14 +209,15 @@ export function populateStationFurniture(
   // Non-colliding Deck Floor Rug / Pad for grounding furniture clusters
   const addFloorPad = (x: number, z: number, w: number, d: number, rotY: number, color = 0x1e293b, border = 0x38bdf8) => {
     const g = new THREE.Group();
-    g.position.set(x, 0.012, z);
+    g.position.set(x, 0.014, z);
     g.rotation.y = rotY;
     const pad = new THREE.Mesh(
       boxGeo(w, 0.016, d),
       stdMat(color, 0.88, 0.1)
     );
+    pad.position.y = 0.008;
     const rim = new THREE.Mesh(
-      boxGeo(w + 0.08, 0.008, d + 0.08),
+      boxGeo(w + 0.1, 0.008, d + 0.1),
       stdMat(border, 0.4, 0.2, border, 0.55)
     );
     rim.position.y = -0.002;
@@ -708,7 +719,7 @@ export function populateStationFurniture(
     g.rotation.y = rotY;
     const frame = new THREE.Mesh(boxGeo(w + 0.22, h + 0.22, 0.12), metalDark);
     const scr = new THREE.Mesh(new THREE.PlaneGeometry(w, h), makeScreenMat(tex));
-    scr.position.z = 0.07;
+    scr.position.z = 0.072;
     g.add(frame, scr);
     activeRoom.group.add(g);
   };
@@ -722,7 +733,7 @@ export function populateStationFurniture(
       new THREE.PlaneGeometry(w, h),
       new THREE.MeshStandardMaterial({ map: tex, roughness: 0.55 })
     );
-    canvasMesh.position.z = 0.05;
+    canvasMesh.position.z = 0.052;
     g.add(frame, canvasMesh);
     activeRoom.group.add(g);
   };
@@ -792,6 +803,80 @@ export function populateStationFurniture(
   addWallDisplay(0, 2.35, 7.75, Math.PI, 4.6, 2.1, screenWorldTex);
   addWallDisplay(-8.75, 2.3, -4.5, Math.PI / 2, 3.2, 1.6, screenInfoTex);
   addFramedArt(8.75, 2.3, 4.5, -Math.PI / 2, 2.0, 1.4, artWorldTex);
+
+  // Secret Culture TV Console (Central Lobby SW-South at -3.25, 6.95)
+  const tvGroup = new THREE.Group();
+  tvGroup.position.set(-3.25, 0, 6.95);
+  tvGroup.rotation.y = Math.PI;
+  const tvStandBase = new THREE.Mesh(boxGeo(1.08, 0.62, 0.58), metalDark);
+  tvStandBase.position.y = 0.31;
+  const tvStandTrim = new THREE.Mesh(boxGeo(1.14, 0.06, 0.62), stdMat(0xf59e0b, 0.35, 0.4, 0xd97706, 0.55));
+  tvStandTrim.position.y = 0.64;
+  const tvCabinet = new THREE.Mesh(boxGeo(1.12, 0.78, 0.44), metalSlate);
+  tvCabinet.position.y = 1.06;
+  const tvScreenMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.82, 0.58), makeScreenMat(screenTvCultureTex));
+  tvScreenMesh.position.set(-0.07, 1.07, 0.228);
+  const tvSpeakerPanel = new THREE.Mesh(boxGeo(0.14, 0.56, 0.02), metalDark);
+  tvSpeakerPanel.position.set(0.43, 1.07, 0.222);
+  const tvDialTop = new THREE.Mesh(cylGeo(0.038, 0.038, 0.04, 10), metalBrass);
+  tvDialTop.rotation.x = Math.PI / 2;
+  tvDialTop.position.set(0.43, 1.24, 0.24);
+  const tvDialBot = tvDialTop.clone();
+  tvDialBot.position.y = 1.12;
+  const tvAntL = new THREE.Mesh(cylGeo(0.015, 0.015, 0.52, 6), metalLight);
+  tvAntL.position.set(-0.16, 1.66, -0.02);
+  tvAntL.rotation.z = 0.42;
+  const tvAntR = new THREE.Mesh(cylGeo(0.015, 0.015, 0.52, 6), metalLight);
+  tvAntR.position.set(0.16, 1.66, -0.02);
+  tvAntR.rotation.z = -0.42;
+  const tvBeaconMat = new THREE.MeshStandardMaterial({
+    color: 0xf472b6,
+    emissive: 0xec4899,
+    emissiveIntensity: 1.15,
+    roughness: 0.2,
+  });
+  const tvBeacon = new THREE.Mesh(new THREE.OctahedronGeometry(0.15, 0), tvBeaconMat);
+  tvBeacon.position.set(0, 1.98, 0);
+  registerSpinner({ obj: tvBeacon, speedY: 1.5, floatAmp: 0.08, baseY: 1.98 });
+
+  const tvOutlineGroup = new THREE.Group();
+  const tvOutlineEdge = new THREE.LineSegments(
+    new THREE.EdgesGeometry(new THREE.BoxGeometry(1.24, 1.48, 0.68)),
+    new THREE.LineBasicMaterial({ color: 0xf472b6, transparent: true, opacity: 0.95 })
+  );
+  tvOutlineEdge.position.y = 0.74;
+  tvOutlineGroup.add(tvOutlineEdge);
+  tvOutlineGroup.visible = false;
+
+  const tvHitMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(1.35, 1.75, 0.9),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, colorWrite: false })
+  );
+  tvHitMesh.position.y = 0.9;
+  tvHitMesh.userData = { interactType: 'secret_tv' };
+
+  tvGroup.add(
+    tvStandBase,
+    tvStandTrim,
+    tvCabinet,
+    tvScreenMesh,
+    tvSpeakerPanel,
+    tvDialTop,
+    tvDialBot,
+    tvAntL,
+    tvAntR,
+    tvBeacon,
+    tvOutlineGroup,
+    tvHitMesh
+  );
+  activeRoom.group.add(tvGroup);
+  const secretTv: SecretTvObject = {
+    position: new THREE.Vector3(-3.25, 0, 6.95),
+    outlineGroup: tvOutlineGroup,
+    hitMesh: tvHitMesh,
+    beaconMat: tvBeaconMat,
+    beacon: tvBeacon,
+  };
 
   // ==================================================================
   // 2. COMMUNICATION ROOM
@@ -1402,5 +1487,5 @@ export function populateStationFurniture(
     };
   });
 
-  return { vents, theoryBooks, spinners, roomGroups };
+  return { vents, theoryBooks, spinners, roomGroups, secretTv };
 }

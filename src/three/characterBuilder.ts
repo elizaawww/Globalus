@@ -24,18 +24,28 @@ export const HELMET_HEAD_MOUNTS: Record<
   explorer_dome: { y: 0.025, z: -0.02, tiltX: -0.03, scale: 1.05 },
 };
 
+export interface ClothSurface {
+  geo: THREE.BufferGeometry;
+  basePos: Float32Array;
+  height: number;
+  amplitude: number;
+}
+
 export interface CharacterRig {
   root: THREE.Group;
   bodyPivot: THREE.Group;
   headGroup: THREE.Group;
   leftArm: THREE.Group;
   rightArm: THREE.Group;
+  leftForearm: THREE.Group;
+  rightForearm: THREE.Group;
   leftLeg: THREE.Group;
   rightLeg: THREE.Group;
   capeMesh?: THREE.Object3D;
+  capeCloths?: ClothSurface[];
   animatedAccGroups?: Array<{
     obj: THREE.Object3D;
-    mode: 'orbit' | 'pulse' | 'wave' | 'ring_spin';
+    mode: 'orbit' | 'pulse' | 'wave' | 'ring_spin' | 'wing_L' | 'wing_R';
     speed?: number;
     baseRotX?: number;
     phase?: number;
@@ -79,6 +89,7 @@ export function buildAstronautRig(
 
   const suitParts: THREE.Mesh[] = [];
   const animatedAccGroups: NonNullable<CharacterRig['animatedAccGroups']> = [];
+  const capeCloths: ClothSurface[] = [];
 
   // Contact shadow grounded at y = 0.015
   if (!isGhost) {
@@ -187,18 +198,48 @@ export function buildAstronautRig(
   buckle.position.set(0, 0.86, 0.39);
   bodyPivot.add(buckle);
 
-  // Detailed Chestplate + Identity Badge
+  // Detailed Chestplate + Costume Overlays + Identity Badge
+  if (config.costume === 'nusantara_batik') {
+    const batikWrapMat = new THREE.MeshStandardMaterial({
+      map: tex.batikGold,
+      roughness: 0.48,
+      metalness: 0.24,
+    });
+    const goldPipingMat = new THREE.MeshStandardMaterial({
+      color: 0xfbbf24,
+      metalness: 0.88,
+      roughness: 0.22,
+    });
+    const tunicShell = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.435, 0.445, 0.56, 18, 1, true),
+      batikWrapMat
+    );
+    tunicShell.position.y = 1.1;
+    tunicShell.scale.set(1.02, 1.0, 0.88);
+    const hemTrim = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.024, 8, 22), goldPipingMat);
+    hemTrim.rotation.x = Math.PI / 2;
+    hemTrim.scale.set(1.03, 0.89, 1);
+    hemTrim.position.y = 0.83;
+    const collarLapelL = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.34, 0.1), goldPipingMat);
+    collarLapelL.position.set(-0.11, 1.24, 0.36);
+    collarLapelL.rotation.z = 0.24;
+    const collarLapelR = collarLapelL.clone();
+    collarLapelR.position.x = 0.11;
+    collarLapelR.rotation.z = -0.24;
+    bodyPivot.add(tunicShell, hemTrim, collarLapelL, collarLapelR);
+  }
+
   const chestPlate = new THREE.Mesh(
-    new THREE.BoxGeometry(0.44, 0.28, 0.12),
+    new THREE.BoxGeometry(0.44, 0.26, 0.11),
     config.costume === 'nusantara_batik'
-      ? new THREE.MeshStandardMaterial({ map: tex.batikGold, roughness: 0.42, metalness: 0.35 })
+      ? new THREE.MeshStandardMaterial({ map: tex.batikMaroon, roughness: 0.42, metalness: 0.28 })
       : metallicMat
   );
-  chestPlate.position.set(0, 1.14, 0.34);
+  chestPlate.position.set(0, 1.14, 0.35);
   bodyPivot.add(chestPlate);
 
   const idBadge = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.08, 0.04), neonMat);
-  idBadge.position.set(-0.11, 1.19, 0.4);
+  idBadge.position.set(-0.11, 1.19, 0.415);
   bodyPivot.add(idBadge);
 
   if (config.costume === 'tactical_armor' || config.costume === 'cyber_neon') {
@@ -212,7 +253,7 @@ export function buildAstronautRig(
     bodyPivot.add(pL, pR);
   }
 
-  // Head + Helmet Design Variants
+  // Head + Helmet Design Variants (Clean visor projection proud of helmet sphere: zero clipping/blue face orb)
   const headGroup = new THREE.Group();
   headGroup.position.set(0, 1.64, 0);
   bodyPivot.add(headGroup);
@@ -222,31 +263,35 @@ export function buildAstronautRig(
   neckCollar.position.y = -0.22;
   headGroup.add(neckCollar);
 
-  const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.38, 22, 18), suitMat);
+  const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.38, 24, 20), suitMat);
   helmet.castShadow = !isGhost;
   headGroup.add(helmet);
 
-  // Visor shape varies with helmet design
+  // Visor sits cleanly at z = 0.228 with forward extent 0.416 > helmet radius 0.38 (eliminates Z-fighting/blue patch)
   const hDesign = config.helmet || 'standard_visor';
-  const visor = new THREE.Mesh(new THREE.SphereGeometry(0.28, 22, 16), visorMat);
-  visor.position.set(0, 0.02, 0.18);
+  const visor = new THREE.Mesh(new THREE.SphereGeometry(0.262, 24, 18), visorMat);
+  visor.position.set(0, 0.02, 0.228);
   visor.scale.set(
-    hDesign === 'explorer_dome' ? 1.24 : 1.14,
-    hDesign === 'cyber_recon' ? 0.64 : 0.8,
-    0.66
+    hDesign === 'explorer_dome' ? 1.22 : 1.15,
+    hDesign === 'cyber_recon' ? 0.62 : 0.78,
+    0.72
   );
   headGroup.add(visor);
 
-  const visorRim = new THREE.Mesh(new THREE.TorusGeometry(0.26, 0.032, 8, 24), metallicMat);
-  visorRim.position.set(0, 0.02, 0.29);
-  visorRim.scale.set(hDesign === 'explorer_dome' ? 1.28 : 1.2, hDesign === 'cyber_recon' ? 0.72 : 0.85, 0.5);
+  const visorRim = new THREE.Mesh(new THREE.TorusGeometry(0.264, 0.028, 10, 28), metallicMat);
+  visorRim.position.set(0, 0.02, 0.292);
+  visorRim.scale.set(
+    hDesign === 'explorer_dome' ? 1.2 : 1.14,
+    hDesign === 'cyber_recon' ? 0.65 : 0.81,
+    0.45
+  );
   headGroup.add(visorRim);
 
   if (hDesign === 'commander_crest') {
-    const crest = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.18, 0.46), metallicMat);
-    crest.position.set(0, 0.36, -0.02);
-    const crestGlow = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.06, 0.38), neonMat);
-    crestGlow.position.set(0, 0.45, 0);
+    const crest = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.16, 0.44), metallicMat);
+    crest.position.set(0, 0.37, -0.02);
+    const crestGlow = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.055, 0.36), neonMat);
+    crestGlow.position.set(0, 0.455, 0);
     headGroup.add(crest, crestGlow);
   } else if (hDesign === 'cyber_recon') {
     const earPodL = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.08, 12), neonMat);
@@ -262,34 +307,79 @@ export function buildAstronautRig(
     headGroup.add(brow);
   }
 
-  // Arms with cuff rings & gloves
+  // Articulated Upper Arms + Elbow Forearm Pivots with Cuffs & Gloves
   const makeArm = (xOffset: number) => {
     const armGroup = new THREE.Group();
     armGroup.position.set(xOffset, 1.3, 0);
-    const sleeve = new THREE.Mesh(new THREE.CapsuleGeometry(0.115, 0.34, 6, 10), suitMat);
-    sleeve.position.y = -0.22;
-    sleeve.castShadow = !isGhost;
-    armGroup.add(sleeve);
 
-    const cuff = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.125, 0.125, 0.06, 12),
-      config.costume === 'cyber_neon' ? neonMat : metallicMat
-    );
-    cuff.position.y = -0.37;
-    armGroup.add(cuff);
+    const upperSleeve = new THREE.Mesh(new THREE.CapsuleGeometry(0.112, 0.16, 6, 10), suitMat);
+    upperSleeve.position.y = -0.11;
+    upperSleeve.castShadow = !isGhost;
+    armGroup.add(upperSleeve);
 
-    const glove = new THREE.Mesh(new THREE.SphereGeometry(0.13, 12, 10), trimMat);
-    glove.position.y = -0.46;
-    armGroup.add(glove);
-    return armGroup;
+    const forearmGroup = new THREE.Group();
+    forearmGroup.position.set(0, -0.22, 0);
+
+    const lowerSleeve = new THREE.Mesh(new THREE.CapsuleGeometry(0.102, 0.14, 6, 10), suitMat);
+    lowerSleeve.position.y = -0.09;
+    lowerSleeve.castShadow = !isGhost;
+    forearmGroup.add(lowerSleeve);
+
+    const cuffMat =
+      config.costume === 'cyber_neon'
+        ? neonMat
+        : config.costume === 'nusantara_batik'
+          ? new THREE.MeshStandardMaterial({ map: tex.batikGold, roughness: 0.45, metalness: 0.3 })
+          : metallicMat;
+    const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.118, 0.118, 0.065, 12), cuffMat);
+    cuff.position.y = -0.17;
+    forearmGroup.add(cuff);
+
+    const glove = new THREE.Mesh(new THREE.SphereGeometry(0.122, 12, 10), trimMat);
+    glove.position.y = -0.25;
+    forearmGroup.add(glove);
+
+    armGroup.add(forearmGroup);
+    return { armGroup, forearmGroup };
   };
-  const leftArm = makeArm(-0.53);
-  const rightArm = makeArm(0.53);
+  const leftArmBuilt = makeArm(-0.53);
+  const rightArmBuilt = makeArm(0.53);
+  const leftArm = leftArmBuilt.armGroup;
+  const rightArm = rightArmBuilt.armGroup;
+  const leftForearm = leftArmBuilt.forearmGroup;
+  const rightForearm = rightArmBuilt.forearmGroup;
   bodyPivot.add(leftArm, rightArm);
 
   // --- BODY ACCESSORY & BACKPACK ---
+  const bodyAcc = config.body || 'backpack';
   let capeMesh: THREE.Object3D | undefined;
-  const bodyAcc = config.body;
+  const createDrapedClothMesh = (
+    topWidth: number,
+    bottomWidth: number,
+    height: number,
+    mat: THREE.Material,
+    amplitude = 0.08
+  ) => {
+    const segW = 8;
+    const segH = 10;
+    const geo = new THREE.PlaneGeometry(1, height, segW, segH);
+    const posAttr = geo.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < posAttr.count; i++) {
+      const u = posAttr.getX(i); // -0.5..0.5
+      const origY = posAttr.getY(i); // -h/2 .. +h/2
+      const vDrop = (height * 0.5 - origY) / height; // 0 at shoulder, 1 at hem
+      const w = THREE.MathUtils.lerp(topWidth, bottomWidth, vDrop);
+      const curveZ = -Math.pow(vDrop, 1.25) * 0.22 - (1 - Math.abs(u * 2)) * 0.045 * vDrop;
+      posAttr.setXYZ(i, u * w, -vDrop * height, curveZ);
+    }
+    posAttr.needsUpdate = true;
+    geo.computeVertexNormals();
+    const basePos = new Float32Array(posAttr.array.length);
+    basePos.set(posAttr.array as Float32Array);
+    capeCloths.push({ geo, basePos, height, amplitude });
+    return new THREE.Mesh(geo, mat);
+  };
+
   if (
     bodyAcc === 'none' ||
     bodyAcc === 'backpack' ||
@@ -300,31 +390,41 @@ export function buildAstronautRig(
       bodyAcc === 'tech_backpack'
         ? new THREE.MeshStandardMaterial({ color: 0x0ea5e9, roughness: 0.28, metalness: 0.65 })
         : bodyAcc === 'cultural_backpack'
-          ? new THREE.MeshStandardMaterial({ map: tex.batikEmerald, roughness: 0.5, metalness: 0.25 })
+          ? new THREE.MeshStandardMaterial({ map: tex.batikEmerald, roughness: 0.48, metalness: 0.22 })
           : trimMat;
-    const pack = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.58, 0.28), packMat);
-    pack.position.set(0, 1.14, -0.39);
+    const packGroup = new THREE.Group();
+    packGroup.position.set(0, 1.14, -0.39);
+    const pack = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.54, 0.24), packMat);
     pack.castShadow = !isGhost;
-    bodyPivot.add(pack);
-
-    // Thruster nozzles on backpack
-    const nozzleL = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.085, 0.12, 10), metallicMat);
-    nozzleL.position.set(-0.14, 0.82, -0.42);
+    const topCap = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.24, 0.08, 12), metallicMat);
+    topCap.scale.set(1.0, 1.0, 0.55);
+    topCap.position.set(0, 0.29, 0);
+    const tankL = new THREE.Mesh(new THREE.CapsuleGeometry(0.085, 0.34, 4, 10), metallicMat);
+    tankL.position.set(-0.18, 0.02, -0.06);
+    const tankR = tankL.clone();
+    tankR.position.x = 0.18;
+    const nozzleL = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.085, 0.13, 10), metallicMat);
+    nozzleL.position.set(-0.14, -0.32, -0.03);
     const nozzleR = nozzleL.clone();
     nozzleR.position.x = 0.14;
-    bodyPivot.add(nozzleL, nozzleR);
-
-    const statusBar = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.06, 0.04), neonMat);
-    statusBar.position.set(0, 1.28, -0.53);
-    bodyPivot.add(statusBar);
+    const statusBar = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.055, 0.04), neonMat);
+    statusBar.position.set(0, 0.14, -0.13);
+    packGroup.add(pack, topCap, tankL, tankR, nozzleL, nozzleR, statusBar);
+    bodyPivot.add(packGroup);
   }
   if (bodyAcc === 'cape') {
     const capeMat = new THREE.MeshStandardMaterial({ color: 0x2563eb, side: THREE.DoubleSide, roughness: 0.62 });
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.98, 4, 4), capeMat);
-    mesh.position.set(0, 0.96, -0.45);
-    mesh.rotation.x = 0.18;
-    bodyPivot.add(mesh);
-    capeMesh = mesh;
+    const collarBar = new THREE.Mesh(new THREE.TorusGeometry(0.33, 0.036, 8, 22, Math.PI * 1.15), metallicMat);
+    collarBar.rotation.x = Math.PI / 2;
+    collarBar.rotation.z = -Math.PI * 0.075;
+    collarBar.position.set(0, 1.4, -0.04);
+    const capePivot = new THREE.Group();
+    capePivot.position.set(0, 1.38, -0.37);
+    capePivot.rotation.x = 0.14;
+    const cloth = createDrapedClothMesh(0.56, 0.94, 0.96, capeMat, 0.075);
+    capePivot.add(cloth);
+    bodyPivot.add(collarBar, capePivot);
+    capeMesh = capePivot;
   } else if (bodyAcc === 'royal_batik_cape') {
     const royalGrp = new THREE.Group();
     const goldTrimMat = new THREE.MeshStandardMaterial({
@@ -341,31 +441,30 @@ export function buildAstronautRig(
     collar.position.set(0, 1.42, -0.02);
     royalGrp.add(collar);
 
-    const claspL = new THREE.Mesh(new THREE.OctahedronGeometry(0.07, 0), goldTrimMat);
+    const claspL = new THREE.Mesh(new THREE.OctahedronGeometry(0.068, 0), goldTrimMat);
     claspL.position.set(-0.34, 1.4, 0.14);
     const claspR = claspL.clone();
     claspR.position.x = 0.34;
     royalGrp.add(claspL, claspR);
 
     const capeTail = new THREE.Group();
-    capeTail.position.set(0, 1.38, -0.41);
-    capeTail.rotation.x = 0.18;
+    capeTail.position.set(0, 1.38, -0.39);
+    capeTail.rotation.x = 0.16;
     const clothMat = new THREE.MeshStandardMaterial({
       map: tex.batikMaroon,
       side: THREE.DoubleSide,
-      roughness: 0.48,
-      metalness: 0.12,
+      roughness: 0.5,
+      metalness: 0.14,
     });
-    const cloth = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.5, 0.98, 12, 1, true, Math.PI * 0.72, Math.PI * 0.56), clothMat);
-    cloth.position.set(0, -0.48, 0.22);
-    const hemBar = new THREE.Mesh(new THREE.BoxGeometry(0.82, 0.045, 0.04), goldTrimMat);
-    hemBar.position.set(0, -0.96, -0.14);
-    capeTail.add(cloth, hemBar);
+    const cloth = createDrapedClothMesh(0.62, 1.04, 1.0, clothMat, 0.085);
+    const goldShoulderDrape = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.05, 0.06), goldTrimMat);
+    goldShoulderDrape.position.set(0, -0.02, -0.01);
+    capeTail.add(cloth, goldShoulderDrape);
     royalGrp.add(capeTail);
     bodyPivot.add(royalGrp);
     capeMesh = capeTail;
   } else if (bodyAcc === 'modern_batik_cape') {
-    // Nusantara Tech Mantle — Signature Reward from BIMA
+    // Nusantara Tech Mantle — Signature Reward from BIMA (flexible draped batik cloth + armored shoulders)
     const mantleGrp = new THREE.Group();
     const goldMat = new THREE.MeshStandardMaterial({
       color: 0xfbbf24,
@@ -386,11 +485,10 @@ export function buildAstronautRig(
     const batikMantleMat = new THREE.MeshStandardMaterial({
       map: tex.batikEmerald,
       side: THREE.DoubleSide,
-      roughness: 0.5,
-      metalness: 0.22,
+      roughness: 0.48,
+      metalness: 0.18,
     });
 
-    // High armored sculpted shoulder collar + golden filigree bezel
     const collarBase = new THREE.Mesh(
       new THREE.CylinderGeometry(0.4, 0.47, 0.14, 18, 1, true),
       darkArmorMat
@@ -401,72 +499,40 @@ export function buildAstronautRig(
     collarRim.position.set(0, 1.49, -0.02);
     mantleGrp.add(collarBase, collarRim);
 
-    // Asymmetrical Sculpted Shoulder Mantle Wings (3D embossed golden batik crest + glowing emerald vents)
     const makeShoulderPlate = (side: -1 | 1) => {
       const pGrp = new THREE.Group();
       pGrp.position.set(side * 0.48, 1.38, -0.02);
       pGrp.rotation.z = side * (side === -1 ? 0.34 : 0.2);
 
-      const shell = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.12, 0.34), darkArmorMat);
+      const shell = new THREE.Mesh(new THREE.CapsuleGeometry(0.11, 0.16, 4, 8), darkArmorMat);
+      shell.rotation.z = Math.PI / 2;
       const ridge = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.04, 0.14), goldMat);
-      ridge.position.y = 0.06;
-      const vein = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.025, 0.28), emeraldGlowMat);
+      ridge.position.y = 0.07;
+      const vein = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.025, 0.24), emeraldGlowMat);
       vein.position.y = -0.04;
       pGrp.add(shell, ridge, vein);
       return pGrp;
     };
     const leftShoulder = makeShoulderPlate(-1);
     const rightShoulder = makeShoulderPlate(1);
-    // Asymmetric chest-to-shoulder sash strap
-    const asymStrap = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.08, 0.12), batikMantleMat);
-    asymStrap.position.set(-0.04, 1.24, 0.31);
+    const asymStrap = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.08, 0.11), batikMantleMat);
+    asymStrap.position.set(-0.04, 1.24, 0.34);
     asymStrap.rotation.z = 0.42;
     const strapClasp = new THREE.Mesh(new THREE.OctahedronGeometry(0.065, 0), emeraldGlowMat);
-    strapClasp.position.set(-0.24, 1.34, 0.38);
+    strapClasp.position.set(-0.24, 1.34, 0.41);
     mantleGrp.add(leftShoulder, rightShoulder, asymStrap, strapClasp);
 
-    // Spine Reactor Core + Multi-panel Draping Tech Mantle
-    const spineCore = new THREE.Mesh(new THREE.OctahedronGeometry(0.11, 0), emeraldGlowMat);
-    spineCore.position.set(0, 1.33, -0.45);
-    const spineFrame = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.022, 8, 6), goldMat);
-    spineFrame.position.set(0, 1.33, -0.44);
+    const spineCore = new THREE.Mesh(new THREE.OctahedronGeometry(0.1, 0), emeraldGlowMat);
+    spineCore.position.set(0, 1.35, -0.42);
+    const spineFrame = new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.02, 8, 6), goldMat);
+    spineFrame.position.set(0, 1.35, -0.41);
     mantleGrp.add(spineCore, spineFrame);
 
     const mantlePivot = new THREE.Group();
-    mantlePivot.position.set(0, 1.36, -0.42);
-    mantlePivot.rotation.x = 0.17;
-
-    // Tapered asymmetric Batik drape shape using ExtrudeGeometry for crisp 3D depth
-    const drapeShape = new THREE.Shape();
-    drapeShape.moveTo(-0.34, 0);
-    drapeShape.lineTo(0.34, 0);
-    drapeShape.lineTo(0.46, -0.82);
-    drapeShape.lineTo(0.08, -0.98);
-    drapeShape.lineTo(-0.22, -0.88);
-    drapeShape.lineTo(-0.44, -0.94);
-    drapeShape.closePath();
-
-    const drapeGeo = new THREE.ExtrudeGeometry(drapeShape, {
-      depth: 0.025,
-      bevelEnabled: true,
-      bevelThickness: 0.01,
-      bevelSize: 0.01,
-      bevelSegments: 2,
-    });
-    const drapeMesh = new THREE.Mesh(drapeGeo, batikMantleMat);
-    drapeMesh.position.z = -0.02;
-
-    // Glowing emerald energy edge veins & golden side rails
-    const railL = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.024, 0.92, 8), goldMat);
-    railL.position.set(-0.38, -0.46, 0.01);
-    railL.rotation.z = -0.1;
-    const railR = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.024, 0.84, 8), emeraldGlowMat);
-    railR.position.set(0.39, -0.42, 0.01);
-    railR.rotation.z = 0.12;
-    const finCenter = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.72, 0.03), emeraldGlowMat);
-    finCenter.position.set(0, -0.45, -0.03);
-
-    mantlePivot.add(drapeMesh, railL, railR, finCenter);
+    mantlePivot.position.set(0, 1.38, -0.39);
+    mantlePivot.rotation.x = 0.15;
+    const drapeCloth = createDrapedClothMesh(0.58, 0.96, 0.96, batikMantleMat, 0.08);
+    mantlePivot.add(drapeCloth);
     mantleGrp.add(mantlePivot);
     bodyPivot.add(mantleGrp);
 
@@ -527,38 +593,115 @@ export function buildAstronautRig(
     bodyPivot.add(spine, strutL, strutR, guardL, guardR, beacon);
   }
   if (bodyAcc === 'ornamen_batik') {
-    const sash = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.45, 0.45, 0.28, 16),
-      new THREE.MeshStandardMaterial({ map: tex.batikGold, roughness: 0.48, metalness: 0.3 })
-    );
-    sash.position.y = 1.08;
-    sash.scale.set(1.02, 1, 0.89);
-    bodyPivot.add(sash);
+    // Rich Nusantara Selendang & Batik Vest spanning chest, waist, and shoulders
+    const batikVestMat = new THREE.MeshStandardMaterial({ map: tex.batikGold, roughness: 0.46, metalness: 0.28 });
+    const batikSelendangMat = new THREE.MeshStandardMaterial({ map: tex.batikMaroon, roughness: 0.46, metalness: 0.24 });
+    const goldMat = new THREE.MeshStandardMaterial({ color: 0xfbbf24, metalness: 0.9, roughness: 0.2 });
+
+    const vest = new THREE.Mesh(new THREE.CylinderGeometry(0.445, 0.455, 0.48, 18), batikVestMat);
+    vest.position.y = 1.12;
+    vest.scale.set(1.02, 1.0, 0.89);
+
+    const selendang = new THREE.Mesh(new THREE.TorusGeometry(0.46, 0.068, 8, 24), batikSelendangMat);
+    selendang.position.set(0, 1.18, 0);
+    selendang.rotation.set(0.28, 0.22, -0.62);
+    selendang.scale.set(1.04, 1.04, 0.84);
+
+    const epauletL = new THREE.Mesh(new THREE.CapsuleGeometry(0.09, 0.16, 4, 8), batikSelendangMat);
+    epauletL.rotation.z = Math.PI / 2 - 0.15;
+    epauletL.position.set(-0.46, 1.4, 0);
+    const epauletR = epauletL.clone();
+    epauletR.rotation.z = -Math.PI / 2 + 0.15;
+    epauletR.position.x = 0.46;
+
+    const brooch = new THREE.Mesh(new THREE.OctahedronGeometry(0.065, 0), goldMat);
+    brooch.position.set(0.16, 1.28, 0.4);
+    bodyPivot.add(vest, selendang, epauletL, epauletR, brooch);
   }
   if (bodyAcc === 'jaket_astronaut') {
-    const collar = new THREE.Mesh(
-      new THREE.TorusGeometry(0.36, 0.09, 10, 20),
-      new THREE.MeshStandardMaterial({ color: 0x38bdf8, roughness: 0.45, metalness: 0.4 })
-    );
+    const jacketMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.42, metalness: 0.48 });
+    const trimCyanMat = new THREE.MeshStandardMaterial({ color: 0x38bdf8, emissive: 0x0284c7, emissiveIntensity: 0.7, roughness: 0.25 });
+    const jacketBody = new THREE.Mesh(new THREE.CylinderGeometry(0.445, 0.455, 0.5, 18), jacketMat);
+    jacketBody.position.y = 1.11;
+    jacketBody.scale.set(1.03, 1.0, 0.9);
+    const collar = new THREE.Mesh(new THREE.TorusGeometry(0.35, 0.085, 10, 22), trimCyanMat);
     collar.rotation.x = Math.PI / 2;
-    collar.position.y = 1.46;
-    bodyPivot.add(collar);
+    collar.position.y = 1.44;
+    const lapelL = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.36, 0.07), trimCyanMat);
+    lapelL.position.set(-0.18, 1.15, 0.38);
+    const lapelR = lapelL.clone();
+    lapelR.position.x = 0.18;
+    bodyPivot.add(jacketBody, collar, lapelL, lapelR);
   }
   if (bodyAcc === 'aksesori_futuristik') {
-    const finMat = new THREE.MeshStandardMaterial({
+    // Sculpted Curved Multi-Layer Holo-Angel Wings (replaces flat raw boxes)
+    const wingChassisMat = new THREE.MeshStandardMaterial({ color: 0x1e1b4b, metalness: 0.85, roughness: 0.22 });
+    const wingBladeMat = new THREE.MeshStandardMaterial({
       color: 0xa855f7,
       emissive: 0x7e22ce,
-      emissiveIntensity: 0.9,
+      emissiveIntensity: 0.95,
       roughness: 0.2,
-      metalness: 0.7,
+      metalness: 0.65,
+      transparent: true,
+      opacity: 0.92,
     });
-    const finL = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.68, 0.36), finMat);
-    finL.position.set(-0.28, 1.26, -0.46);
-    finL.rotation.set(0.3, 0, -0.35);
-    const finR = finL.clone();
-    finR.position.x = 0.28;
-    finR.rotation.z = 0.35;
-    bodyPivot.add(finL, finR);
+    const wingEdgeMat = new THREE.MeshStandardMaterial({
+      color: 0x38bdf8,
+      emissive: 0x0ea5e9,
+      emissiveIntensity: 1.25,
+      roughness: 0.15,
+    });
+
+    const dorsalMount = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.18, 0.42, 12), wingChassisMat);
+    dorsalMount.position.set(0, 1.22, -0.38);
+    const wingCore = new THREE.Mesh(new THREE.OctahedronGeometry(0.09, 0), wingEdgeMat);
+    wingCore.position.set(0, 1.24, -0.5);
+    bodyPivot.add(dorsalMount, wingCore);
+
+    const makeFeatherGeo = (len: number, tipLift: number) => {
+      const sh = new THREE.Shape();
+      sh.moveTo(0, -0.05);
+      sh.quadraticCurveTo(len * 0.48, 0.02, len, tipLift);
+      sh.quadraticCurveTo(len * 0.65, tipLift - 0.14, len * 0.25, -0.14);
+      sh.closePath();
+      return new THREE.ExtrudeGeometry(sh, {
+        depth: 0.026,
+        bevelEnabled: true,
+        bevelThickness: 0.008,
+        bevelSize: 0.008,
+        bevelSegments: 2,
+      });
+    };
+    const primaryGeo = makeFeatherGeo(0.95, 0.44);
+    const secondaryGeo = makeFeatherGeo(0.78, 0.18);
+    const tertiaryGeo = makeFeatherGeo(0.58, -0.06);
+
+    const makeWingSide = (side: -1 | 1) => {
+      const wPivot = new THREE.Group();
+      wPivot.position.set(side * 0.16, 1.26, -0.44);
+      wPivot.rotation.y = side * -0.42;
+
+      const f1 = new THREE.Mesh(primaryGeo, wingBladeMat);
+      f1.position.set(0, 0.1, 0);
+      const f2 = new THREE.Mesh(secondaryGeo, wingEdgeMat);
+      f2.position.set(0, 0.0, -0.01);
+      const f3 = new THREE.Mesh(tertiaryGeo, wingBladeMat);
+      f3.position.set(0, -0.11, -0.02);
+      if (side === -1) {
+        wPivot.scale.x = -1;
+      }
+      wPivot.add(f1, f2, f3);
+      return wPivot;
+    };
+
+    const wingL = makeWingSide(-1);
+    const wingR = makeWingSide(1);
+    bodyPivot.add(wingL, wingR);
+    animatedAccGroups.push(
+      { obj: wingL, mode: 'wing_L', phase: 0 },
+      { obj: wingR, mode: 'wing_R', phase: 0 },
+      { obj: wingCore, mode: 'pulse', phase: 0.5 }
+    );
   }
 
   // --- NECK ACCESSORY ---
@@ -621,49 +764,82 @@ export function buildAstronautRig(
   if (hAcc === 'topi_astronaut' || hAcc === 'futuristic_blue_hat' || hAcc === 'topi_batik') {
     const hatMat =
       hAcc === 'topi_batik'
-        ? new THREE.MeshStandardMaterial({ map: tex.batikGold, roughness: 0.55 })
+        ? new THREE.MeshStandardMaterial({ map: tex.batikGold, roughness: 0.52 })
         : new THREE.MeshStandardMaterial({
             color: hAcc === 'futuristic_blue_hat' ? 0x0ea5e9 : 0xf8fafc,
-            roughness: 0.35,
-            metalness: 0.4,
+            roughness: 0.32,
+            metalness: 0.42,
           });
-    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.32, 0.18, 16), hatMat);
-    cap.position.set(0, 0.39, 0);
-    const brim = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.04, 0.36), hatMat);
-    brim.position.set(0, 0.32, 0.2);
-    headwearMount.add(cap, brim);
+    const hatBandMat =
+      hAcc === 'topi_batik'
+        ? new THREE.MeshStandardMaterial({ color: 0xfbbf24, metalness: 0.85, roughness: 0.22 })
+        : neonMat;
+    const crownDome = new THREE.Mesh(
+      new THREE.SphereGeometry(0.32, 18, 12, 0, Math.PI * 2, 0, Math.PI * 0.52),
+      hatMat
+    );
+    crownDome.position.set(0, 0.24, -0.01);
+    const capBand = new THREE.Mesh(new THREE.TorusGeometry(0.315, 0.024, 8, 24), hatBandMat);
+    capBand.rotation.x = Math.PI / 2;
+    capBand.position.set(0, 0.27, -0.01);
+    const brim = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.36, 0.38, 0.032, 18, 1, false, -Math.PI * 0.35, Math.PI * 0.7),
+      hatMat
+    );
+    brim.position.set(0, 0.25, 0.12);
+    brim.rotation.x = 0.16;
+    const emblem = new THREE.Mesh(new THREE.OctahedronGeometry(0.04, 0), hatBandMat);
+    emblem.position.set(0, 0.36, 0.28);
+    headwearMount.add(crownDome, capBand, brim, emblem);
   } else if (hAcc === 'helm_futuristik' || hAcc === 'aksesori_antariksa') {
     const antMat = new THREE.MeshStandardMaterial({
       color: 0x22d3ee,
       emissive: 0x0891b2,
-      emissiveIntensity: 0.9,
+      emissiveIntensity: 1.0,
       metalness: 0.7,
       roughness: 0.2,
     });
-    const stalkL = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.3, 8), metallicMat);
-    stalkL.position.set(-0.24, 0.44, 0);
-    const tipL = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 10), antMat);
-    tipL.position.set(-0.24, 0.6, 0);
-    headwearMount.add(stalkL, tipL);
+    const podL = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.085, 0.07, 12), metallicMat);
+    podL.rotation.z = Math.PI / 2;
+    podL.position.set(-0.37, 0.12, -0.02);
+    const stalkL = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.028, 0.34, 8), metallicMat);
+    stalkL.position.set(-0.34, 0.36, -0.02);
+    stalkL.rotation.z = 0.15;
+    const tipL = new THREE.Mesh(new THREE.OctahedronGeometry(0.055, 0), antMat);
+    tipL.position.set(-0.36, 0.54, -0.02);
+    headwearMount.add(podL, stalkL, tipL);
     if (hAcc === 'aksesori_antariksa') {
+      const podR = podL.clone();
+      podR.position.x = 0.37;
       const stalkR = stalkL.clone();
-      stalkR.position.x = 0.24;
+      stalkR.position.x = 0.34;
+      stalkR.rotation.z = -0.15;
       const tipR = tipL.clone();
-      tipR.position.x = 0.24;
-      headwearMount.add(stalkR, tipR);
+      tipR.position.x = 0.36;
+      const dish = new THREE.Mesh(new THREE.TorusGeometry(0.11, 0.015, 8, 18), antMat);
+      dish.position.set(0, 0.44, -0.1);
+      dish.rotation.x = Math.PI / 2.6;
+      headwearMount.add(podR, stalkR, tipR, dish);
     }
   } else if (hAcc === 'headset') {
-    const earMat = new THREE.MeshStandardMaterial({ color: 0x64748b, metalness: 0.75, roughness: 0.25 });
-    const band = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.035, 8, 24, Math.PI), earMat);
+    const earMat = new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.78, roughness: 0.24 });
+    const cushionMat = new THREE.MeshStandardMaterial({ color: 0x0ea5e9, emissive: 0x0284c7, emissiveIntensity: 0.5, roughness: 0.35 });
+    const band = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.032, 8, 24, Math.PI), earMat);
     band.position.y = 0.06;
-    const cupL = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.08, 12), earMat);
+    const cupL = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.08, 14), earMat);
     cupL.rotation.z = Math.PI / 2;
     cupL.position.set(-0.4, 0.02, 0);
+    const cupGlowL = new THREE.Mesh(new THREE.TorusGeometry(0.08, 0.014, 6, 16), cushionMat);
+    cupGlowL.rotation.y = Math.PI / 2;
+    cupGlowL.position.set(-0.442, 0.02, 0);
     const cupR = cupL.clone();
     cupR.position.x = 0.4;
-    const mic = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 0.26), earMat);
-    mic.position.set(0.32, -0.06, 0.22);
-    headwearMount.add(band, cupL, cupR, mic);
+    const cupGlowR = cupGlowL.clone();
+    cupGlowR.position.x = 0.442;
+    const mic = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.26, 8), earMat);
+    mic.rotation.x = Math.PI / 2;
+    mic.position.set(0.32, -0.06, 0.2);
+    headwearMount.add(band, cupL, cupGlowL, cupR, cupGlowR, mic);
   } else if (hAcc === 'comm_headset') {
     // Cosmic Neural Interface — Signature Reward from REX
     const neuralGrp = new THREE.Group();
@@ -1041,17 +1217,34 @@ export function buildAstronautRig(
     headGroup,
     leftArm,
     rightArm,
+    leftForearm,
+    rightForearm,
     leftLeg,
     rightLeg,
     capeMesh,
+    capeCloths,
     animatedAccGroups,
     nameSprite,
     suitParts,
   };
 }
 
-export function buildNpcAstronaut(npcId: NpcCharacterId): CharacterRig {
+export function buildNpcAstronaut(npcId: NpcCharacterId | 'companion'): CharacterRig {
   const tex = getSharedTextures();
+  if (npcId === 'companion') {
+    return buildAstronautRig(
+      {
+        name: 'TEMAN KRU',
+        color: 'kuning',
+        helmet: 'standard_visor',
+        costume: 'standard_crew',
+        head: 'headset',
+        body: 'backpack',
+        neck: 'none',
+      },
+      { showNameplate: true, nameplateSubtitle: 'Teknisi Stasiun' }
+    );
+  }
   if (npcId === 'rex') {
     const rig = buildAstronautRig(
       {
@@ -1076,10 +1269,10 @@ export function buildNpcAstronaut(npcId: NpcCharacterId): CharacterRig {
     );
     screen.position.z = 0.015;
     phoneGroup.add(phone, screen);
-    phoneGroup.position.set(0, -0.45, 0.14);
+    phoneGroup.position.set(0, -0.24, 0.14);
     phoneGroup.rotation.x = -0.6;
-    rig.rightArm.add(phoneGroup);
-    rig.rightArm.rotation.x = -0.7;
+    rig.rightForearm.add(phoneGroup);
+    rig.rightArm.rotation.x = -0.65;
     rig.heldProp = phoneGroup;
     return rig;
   }
@@ -1114,9 +1307,9 @@ export function buildNpcAstronaut(npcId: NpcCharacterId): CharacterRig {
     );
     ring.rotation.x = Math.PI / 3;
     globeGroup.add(globe, ring);
-    globeGroup.position.set(0, -0.42, 0.22);
-    rig.rightArm.add(globeGroup);
-    rig.rightArm.rotation.x = -0.65;
+    globeGroup.position.set(0, -0.22, 0.22);
+    rig.rightForearm.add(globeGroup);
+    rig.rightArm.rotation.x = -0.62;
     rig.heldProp = globeGroup;
     return rig;
   }
@@ -1145,9 +1338,9 @@ export function buildNpcAstronaut(npcId: NpcCharacterId): CharacterRig {
     );
     waveRing.rotation.x = Math.PI / 2.4;
     waveOrb.add(core, waveRing);
-    waveOrb.position.set(0, -0.42, 0.2);
-    rig.rightArm.add(waveOrb);
-    rig.rightArm.rotation.x = -0.68;
+    waveOrb.position.set(0, -0.22, 0.2);
+    rig.rightForearm.add(waveOrb);
+    rig.rightArm.rotation.x = -0.65;
     rig.heldProp = waveOrb;
     return rig;
   }
@@ -1176,9 +1369,9 @@ export function buildNpcAstronaut(npcId: NpcCharacterId): CharacterRig {
     );
     band.rotation.x = Math.PI / 3;
     tradePrism.add(prism, band);
-    tradePrism.position.set(0, -0.43, 0.2);
-    rig.rightArm.add(tradePrism);
-    rig.rightArm.rotation.x = -0.66;
+    tradePrism.position.set(0, -0.23, 0.2);
+    rig.rightForearm.add(tradePrism);
+    rig.rightArm.rotation.x = -0.64;
     rig.heldProp = tradePrism;
     return rig;
   }
@@ -1206,10 +1399,10 @@ export function buildNpcAstronaut(npcId: NpcCharacterId): CharacterRig {
   );
   screen.position.z = 0.015;
   tabGroup.add(frame, screen);
-  tabGroup.position.set(0, -0.44, 0.16);
+  tabGroup.position.set(0, -0.24, 0.16);
   tabGroup.rotation.x = -0.55;
-  rig.rightArm.add(tabGroup);
-  rig.rightArm.rotation.x = -0.68;
+  rig.rightForearm.add(tabGroup);
+  rig.rightArm.rotation.x = -0.66;
   rig.heldProp = tabGroup;
   return rig;
 }
@@ -1219,21 +1412,24 @@ export function animateCharacterRig(
   time: number,
   animState: CharacterAnimState,
   delta: number,
-  gesture?: 'explain' | 'point' | 'nod' | 'ponder' | 'gearup' | 'scratch_head' | 'tilt_curious',
+  gesture?: 'explain' | 'point' | 'nod' | 'ponder' | 'gearup' | 'scratch_head' | 'tilt_curious' | 'panic',
   activeEmote?: EmoteId | null,
   emoteElapsed = 0
 ) {
   const k = 1 - Math.exp(-12 * delta);
-  // Emotes are expressed purely via 3D character body/limb animation (no floating overhead emoji)
+  const lFore = rig.leftForearm;
+  const rFore = rig.rightForearm;
 
   if (animState === 'jump') {
     rig.leftLeg.rotation.x = THREE.MathUtils.lerp(rig.leftLeg.rotation.x, -0.52, k);
     rig.rightLeg.rotation.x = THREE.MathUtils.lerp(rig.rightLeg.rotation.x, 0.36, k);
-    rig.leftArm.rotation.x = THREE.MathUtils.lerp(rig.leftArm.rotation.x, -1.95, k);
+    rig.leftArm.rotation.x = THREE.MathUtils.lerp(rig.leftArm.rotation.x, -1.75, k);
     rig.leftArm.rotation.z = THREE.MathUtils.lerp(rig.leftArm.rotation.z, 0.42, k);
+    lFore.rotation.set(THREE.MathUtils.lerp(lFore.rotation.x, -0.35, k), 0, 0);
     if (!rig.heldProp) {
-      rig.rightArm.rotation.x = THREE.MathUtils.lerp(rig.rightArm.rotation.x, -1.95, k);
+      rig.rightArm.rotation.x = THREE.MathUtils.lerp(rig.rightArm.rotation.x, -1.75, k);
       rig.rightArm.rotation.z = THREE.MathUtils.lerp(rig.rightArm.rotation.z, -0.42, k);
+      rFore.rotation.set(THREE.MathUtils.lerp(rFore.rotation.x, -0.35, k), 0, 0);
     }
     rig.headGroup.rotation.x = THREE.MathUtils.lerp(rig.headGroup.rotation.x, -0.1, k);
     rig.headGroup.rotation.y = THREE.MathUtils.lerp(rig.headGroup.rotation.y, 0, k);
@@ -1244,7 +1440,7 @@ export function animateCharacterRig(
     rig.bodyPivot.rotation.z = THREE.MathUtils.lerp(rig.bodyPivot.rotation.z, 0, k);
     rig.bodyPivot.scale.setScalar(THREE.MathUtils.lerp(rig.bodyPivot.scale.x, 1, k));
     if (rig.capeMesh) {
-      rig.capeMesh.rotation.x = THREE.MathUtils.lerp(rig.capeMesh.rotation.x, 0.58, k);
+      rig.capeMesh.rotation.x = THREE.MathUtils.lerp(rig.capeMesh.rotation.x, 0.48, k);
     }
   } else if (animState === 'walk' || animState === 'run') {
     const isRun = animState === 'run';
@@ -1253,11 +1449,13 @@ export function animateCharacterRig(
     const swing = Math.sin(time * freq) * amp;
     rig.leftLeg.rotation.x = swing;
     rig.rightLeg.rotation.x = -swing;
-    rig.leftArm.rotation.x = -swing * 0.78;
+    rig.leftArm.rotation.x = -swing * 0.72;
     rig.leftArm.rotation.z = THREE.MathUtils.lerp(rig.leftArm.rotation.z, 0, k);
+    lFore.rotation.set(THREE.MathUtils.lerp(lFore.rotation.x, isRun ? -0.65 : -0.35, k), 0, 0);
     if (!rig.heldProp) {
-      rig.rightArm.rotation.x = swing * 0.78;
+      rig.rightArm.rotation.x = swing * 0.72;
       rig.rightArm.rotation.z = THREE.MathUtils.lerp(rig.rightArm.rotation.z, 0, k);
+      rFore.rotation.set(THREE.MathUtils.lerp(rFore.rotation.x, isRun ? -0.65 : -0.35, k), 0, 0);
     }
     rig.headGroup.rotation.x = THREE.MathUtils.lerp(rig.headGroup.rotation.x, 0, k);
     rig.headGroup.rotation.y = THREE.MathUtils.lerp(rig.headGroup.rotation.y, 0, k);
@@ -1268,16 +1466,22 @@ export function animateCharacterRig(
     rig.bodyPivot.rotation.z = THREE.MathUtils.lerp(rig.bodyPivot.rotation.z, 0, k);
     rig.bodyPivot.scale.setScalar(THREE.MathUtils.lerp(rig.bodyPivot.scale.x, 1, k));
     if (rig.capeMesh) {
-      rig.capeMesh.rotation.x = (isRun ? 0.45 : 0.28) + Math.sin(time * freq * 0.8) * 0.12;
+      rig.capeMesh.rotation.x = THREE.MathUtils.lerp(
+        rig.capeMesh.rotation.x,
+        (isRun ? 0.42 : 0.24) + Math.sin(time * freq * 0.8) * 0.08,
+        k
+      );
     }
   } else if (animState === 'interact') {
     rig.leftLeg.rotation.x = THREE.MathUtils.lerp(rig.leftLeg.rotation.x, 0, k);
     rig.rightLeg.rotation.x = THREE.MathUtils.lerp(rig.rightLeg.rotation.x, 0, k);
-    rig.leftArm.rotation.x = -0.85 + Math.sin(time * 14) * 0.12;
+    rig.leftArm.rotation.x = -0.65 + Math.sin(time * 14) * 0.12;
     rig.leftArm.rotation.z = THREE.MathUtils.lerp(rig.leftArm.rotation.z, 0, k);
+    lFore.rotation.set(-0.65, 0, 0);
     if (!rig.heldProp) {
-      rig.rightArm.rotation.x = -0.85 + Math.cos(time * 14) * 0.12;
+      rig.rightArm.rotation.x = -0.65 + Math.cos(time * 14) * 0.12;
       rig.rightArm.rotation.z = THREE.MathUtils.lerp(rig.rightArm.rotation.z, 0, k);
+      rFore.rotation.set(-0.65, 0, 0);
     }
     rig.bodyPivot.rotation.x = THREE.MathUtils.lerp(rig.bodyPivot.rotation.x, 0.08, k);
     rig.bodyPivot.rotation.y = THREE.MathUtils.lerp(rig.bodyPivot.rotation.y, 0, k);
@@ -1287,23 +1491,39 @@ export function animateCharacterRig(
     rig.bodyPivot.position.y = THREE.MathUtils.lerp(rig.bodyPivot.position.y, -1.2, k);
     rig.bodyPivot.scale.setScalar(THREE.MathUtils.lerp(rig.bodyPivot.scale.x, 0.25, k));
     rig.leftArm.rotation.x = THREE.MathUtils.lerp(rig.leftArm.rotation.x, -2.1, k);
-    if (!rig.heldProp) rig.rightArm.rotation.x = THREE.MathUtils.lerp(rig.rightArm.rotation.x, -2.1, k);
+    lFore.rotation.set(0, 0, 0);
+    if (!rig.heldProp) {
+      rig.rightArm.rotation.x = THREE.MathUtils.lerp(rig.rightArm.rotation.x, -2.1, k);
+      rFore.rotation.set(0, 0, 0);
+    }
   } else if (animState === 'vent_out') {
     rig.bodyPivot.position.y = THREE.MathUtils.lerp(rig.bodyPivot.position.y, 0.05, k);
     rig.bodyPivot.scale.setScalar(THREE.MathUtils.lerp(rig.bodyPivot.scale.x, 1, k));
     rig.leftArm.rotation.x = THREE.MathUtils.lerp(rig.leftArm.rotation.x, 0, k);
-    if (!rig.heldProp) rig.rightArm.rotation.x = THREE.MathUtils.lerp(rig.rightArm.rotation.x, 0, k);
+    lFore.rotation.set(0, 0, 0);
+    if (!rig.heldProp) {
+      rig.rightArm.rotation.x = THREE.MathUtils.lerp(rig.rightArm.rotation.x, 0, k);
+      rFore.rotation.set(0, 0, 0);
+    }
   } else if (animState === 'celebrate') {
     rig.bodyPivot.position.y = Math.abs(Math.sin(time * 7)) * 0.22;
-    rig.leftArm.rotation.x = -2.3 + Math.sin(time * 9) * 0.25;
-    if (!rig.heldProp) rig.rightArm.rotation.x = -2.3 - Math.sin(time * 9) * 0.25;
+    rig.leftArm.rotation.x = -2.2 + Math.sin(time * 9) * 0.25;
+    lFore.rotation.set(-0.35, 0, 0);
+    if (!rig.heldProp) {
+      rig.rightArm.rotation.x = -2.2 - Math.sin(time * 9) * 0.25;
+      rFore.rotation.set(-0.35, 0, 0);
+    }
     rig.bodyPivot.scale.setScalar(1);
   } else if (animState === 'defeat') {
     rig.bodyPivot.position.y = -0.05;
     rig.bodyPivot.rotation.x = 0.22;
     rig.headGroup.rotation.x = 0.35;
     rig.leftArm.rotation.x = 0.15;
-    if (!rig.heldProp) rig.rightArm.rotation.x = 0.15;
+    lFore.rotation.set(-0.2, 0, 0);
+    if (!rig.heldProp) {
+      rig.rightArm.rotation.x = 0.15;
+      rFore.rotation.set(-0.2, 0, 0);
+    }
   } else if (activeEmote) {
     const et = emoteElapsed || time;
     rig.bodyPivot.scale.setScalar(THREE.MathUtils.lerp(rig.bodyPivot.scale.x, 1, k));
@@ -1312,77 +1532,157 @@ export function animateCharacterRig(
     rig.bodyPivot.rotation.x = THREE.MathUtils.lerp(rig.bodyPivot.rotation.x, 0, k);
     rig.bodyPivot.rotation.y = THREE.MathUtils.lerp(rig.bodyPivot.rotation.y, 0, k);
     rig.bodyPivot.rotation.z = THREE.MathUtils.lerp(rig.bodyPivot.rotation.z, 0, k);
+    lFore.rotation.set(0, 0, 0);
+    if (!rig.heldProp) rFore.rotation.set(0, 0, 0);
 
     if (activeEmote === 'wave') {
       rig.bodyPivot.position.y = Math.sin(et * 4) * 0.03;
-      rig.headGroup.rotation.z = -0.1;
-      rig.headGroup.rotation.y = Math.sin(et * 3) * 0.1;
-      rig.leftArm.rotation.x = THREE.MathUtils.lerp(rig.leftArm.rotation.x, -0.1, k);
-      rig.leftArm.rotation.z = THREE.MathUtils.lerp(rig.leftArm.rotation.z, 0.1, k);
+      rig.headGroup.rotation.set(-0.04, Math.sin(et * 3) * 0.12, -0.08);
+      rig.leftArm.rotation.set(-0.12, 0, 0.1);
+      lFore.rotation.set(-0.25, 0, 0);
       if (!rig.heldProp) {
-        rig.rightArm.rotation.x = -2.35;
-        rig.rightArm.rotation.z = -0.45 + Math.sin(et * 11) * 0.35;
+        rig.rightArm.rotation.set(-2.25, 0, -0.35);
+        rFore.rotation.set(-0.25, 0, -0.35 + Math.sin(et * 11) * 0.45);
+      }
+    } else if (activeEmote === 'bow') {
+      rig.bodyPivot.position.y = -0.04;
+      rig.bodyPivot.rotation.x = 0.52 + Math.sin(et * 2.5) * 0.05;
+      rig.headGroup.rotation.set(0.24, 0, 0);
+      rig.leftArm.rotation.set(-0.45, 0, -0.18);
+      lFore.rotation.set(-0.85, 0, -0.45);
+      if (!rig.heldProp) {
+        rig.rightArm.rotation.set(-0.45, 0, 0.18);
+        rFore.rotation.set(-0.85, 0, 0.45);
+      }
+    } else if (activeEmote === 'salute') {
+      rig.bodyPivot.position.y = Math.sin(et * 3) * 0.015;
+      rig.bodyPivot.rotation.x = -0.04;
+      rig.headGroup.rotation.set(-0.05, -0.06, 0);
+      rig.leftArm.rotation.set(0.05, 0, 0.08);
+      lFore.rotation.set(-0.1, 0, 0);
+      if (!rig.heldProp) {
+        // Right elbow out & bent smartly toward helmet visor brow without clipping helmet
+        rig.rightArm.rotation.set(-1.05, 0, -0.82);
+        rFore.rotation.set(-1.35, 0, 0.72);
       }
     } else if (activeEmote === 'clap') {
       const clap = Math.abs(Math.sin(et * 11));
       rig.bodyPivot.position.y = clap * 0.04;
-      rig.headGroup.rotation.x = Math.sin(et * 5.5) * 0.08;
-      rig.leftArm.rotation.x = -1.25;
-      rig.leftArm.rotation.z = -0.58 + clap * 0.34;
+      rig.headGroup.rotation.set(Math.sin(et * 5.5) * 0.08, 0, 0);
+      rig.leftArm.rotation.set(-0.85, 0, 0.15);
+      lFore.rotation.set(-0.95, 0, -0.58 + clap * 0.36);
       if (!rig.heldProp) {
-        rig.rightArm.rotation.x = -1.25;
-        rig.rightArm.rotation.z = 0.58 - clap * 0.34;
+        rig.rightArm.rotation.set(-0.85, 0, -0.15);
+        rFore.rotation.set(-0.95, 0, 0.58 - clap * 0.36);
       }
     } else if (activeEmote === 'thumbs_up') {
       rig.bodyPivot.position.y = Math.sin(et * 3.5) * 0.03;
-      rig.headGroup.rotation.x = -0.12;
-      rig.headGroup.rotation.z = 0.08;
-      rig.leftArm.rotation.x = -0.12;
-      rig.leftArm.rotation.z = 0.1;
+      rig.headGroup.rotation.set(-0.1 + Math.sin(et * 4) * 0.04, 0, 0.08);
+      rig.leftArm.rotation.set(-0.12, 0, 0.1);
+      lFore.rotation.set(-0.2, 0, 0);
       if (!rig.heldProp) {
-        rig.rightArm.rotation.x = -1.55 + Math.sin(et * 4) * 0.06;
-        rig.rightArm.rotation.z = -0.18;
+        rig.rightArm.rotation.set(-1.05, 0, -0.22);
+        rFore.rotation.set(-0.75 + Math.sin(et * 4.5) * 0.1, 0, 0.1);
       }
     } else if (activeEmote === 'heart') {
       rig.bodyPivot.position.y = Math.sin(et * 5) * 0.04;
-      rig.headGroup.rotation.x = -0.06;
-      rig.headGroup.rotation.z = Math.sin(et * 3) * 0.12;
-      rig.leftArm.rotation.x = -2.25;
-      rig.leftArm.rotation.z = -0.45;
+      rig.headGroup.rotation.set(-0.06, 0, Math.sin(et * 3) * 0.1);
+      rig.leftArm.rotation.set(-1.75, 0, 0.65);
+      lFore.rotation.set(-0.85, 0, -0.78);
       if (!rig.heldProp) {
-        rig.rightArm.rotation.x = -2.25;
-        rig.rightArm.rotation.z = 0.45;
+        rig.rightArm.rotation.set(-1.75, 0, -0.65);
+        rFore.rotation.set(-0.85, 0, 0.78);
       }
     } else if (activeEmote === 'laugh') {
       rig.bodyPivot.position.y = Math.abs(Math.sin(et * 12)) * 0.1;
       rig.bodyPivot.rotation.x = -0.14 + Math.sin(et * 12) * 0.08;
-      rig.headGroup.rotation.x = -0.25 + Math.sin(et * 12) * 0.14;
-      rig.leftArm.rotation.x = -0.75 + Math.sin(et * 12) * 0.2;
-      rig.leftArm.rotation.z = 0.25;
+      rig.headGroup.rotation.set(-0.24 + Math.sin(et * 12) * 0.14, 0, 0);
+      rig.leftArm.rotation.set(-0.55 + Math.sin(et * 12) * 0.18, 0, 0.28);
+      lFore.rotation.set(-0.85, 0, -0.3);
       if (!rig.heldProp) {
-        rig.rightArm.rotation.x = -0.75 - Math.sin(et * 12) * 0.2;
-        rig.rightArm.rotation.z = -0.25;
+        rig.rightArm.rotation.set(-0.55 - Math.sin(et * 12) * 0.18, 0, -0.28);
+        rFore.rotation.set(-0.85, 0, 0.3);
       }
     } else if (activeEmote === 'sad') {
       rig.bodyPivot.position.y = -0.06;
-      rig.bodyPivot.rotation.x = 0.2;
-      rig.headGroup.rotation.x = 0.38;
-      rig.headGroup.rotation.z = Math.sin(et * 3.5) * 0.14;
-      rig.leftArm.rotation.x = -0.45;
-      rig.leftArm.rotation.z = -0.18;
+      rig.bodyPivot.rotation.x = 0.22;
+      rig.headGroup.rotation.set(0.38, 0, Math.sin(et * 3.5) * 0.12);
+      rig.leftArm.rotation.set(-0.28, 0, -0.14);
+      lFore.rotation.set(-0.45, 0, 0);
       if (!rig.heldProp) {
-        rig.rightArm.rotation.x = -0.45;
-        rig.rightArm.rotation.z = 0.18;
+        rig.rightArm.rotation.set(-0.28, 0, 0.14);
+        rFore.rotation.set(-0.45, 0, 0);
       }
     } else if (activeEmote === 'surprised') {
-      rig.bodyPivot.position.y = Math.abs(Math.sin(et * 8)) * 0.08;
-      rig.bodyPivot.rotation.x = -0.16;
-      rig.headGroup.rotation.x = -0.24;
-      rig.leftArm.rotation.x = -1.65;
-      rig.leftArm.rotation.z = 0.65;
+      rig.bodyPivot.position.y = Math.abs(Math.sin(et * 8)) * 0.09;
+      rig.bodyPivot.rotation.x = -0.18;
+      rig.headGroup.rotation.set(-0.24, 0, 0);
+      rig.leftArm.rotation.set(-1.45, 0, 0.72);
+      lFore.rotation.set(-0.45, 0, 0.18);
       if (!rig.heldProp) {
-        rig.rightArm.rotation.x = -1.65;
-        rig.rightArm.rotation.z = -0.65;
+        rig.rightArm.rotation.set(-1.45, 0, -0.72);
+        rFore.rotation.set(-0.45, 0, -0.18);
+      }
+    } else if (activeEmote === 'shrug') {
+      const lift = 0.08 + Math.sin(et * 4.5) * 0.05;
+      rig.bodyPivot.position.y = lift * 0.35;
+      rig.headGroup.rotation.set(0.06, Math.sin(et * 3) * 0.14, 0.2);
+      rig.leftArm.rotation.set(-0.38, 0, 0.56);
+      lFore.rotation.set(-0.98, 0, 0.32);
+      if (!rig.heldProp) {
+        rig.rightArm.rotation.set(-0.38, 0, -0.56);
+        rFore.rotation.set(-0.98, 0, -0.32);
+      }
+    } else if (activeEmote === 'think') {
+      // Articulated bent elbow puts glove thoughtfully in front of chin without penetrating head/torso
+      rig.bodyPivot.position.y = Math.sin(et * 2.4) * 0.02;
+      rig.bodyPivot.rotation.x = 0.04;
+      rig.headGroup.rotation.set(0.14, -0.12 + Math.sin(et * 2.2) * 0.08, 0.18 + Math.sin(et * 2.4) * 0.04);
+      rig.leftArm.rotation.set(-0.48, 0, 0.12);
+      lFore.rotation.set(-1.15, 0, -0.68);
+      if (!rig.heldProp) {
+        rig.rightArm.rotation.set(-0.78, 0, -0.22);
+        rFore.rotation.set(-1.28, 0, 0.38 + Math.sin(et * 3.2) * 0.05);
+      }
+    } else if (activeEmote === 'celebrate') {
+      rig.bodyPivot.position.y = Math.abs(Math.sin(et * 8)) * 0.22;
+      rig.headGroup.rotation.set(-0.15, 0, 0);
+      rig.leftArm.rotation.set(-2.35 + Math.sin(et * 10) * 0.24, 0, 0.32);
+      lFore.rotation.set(-0.25, 0, 0);
+      if (!rig.heldProp) {
+        rig.rightArm.rotation.set(-2.35 - Math.sin(et * 10) * 0.24, 0, -0.32);
+        rFore.rotation.set(-0.25, 0, 0);
+      }
+    } else if (activeEmote === 'cheer') {
+      const pump = Math.sin(et * 11);
+      rig.bodyPivot.position.y = Math.abs(pump) * 0.14;
+      rig.headGroup.rotation.set(-0.12, Math.sin(et * 5.5) * 0.14, 0);
+      rig.leftArm.rotation.set(-1.55 + pump * 0.45, 0, 0.28);
+      lFore.rotation.set(-0.75 + pump * 0.25, 0, 0);
+      if (!rig.heldProp) {
+        rig.rightArm.rotation.set(-1.55 - pump * 0.45, 0, -0.28);
+        rFore.rotation.set(-0.75 - pump * 0.25, 0, 0);
+      }
+    } else if (activeEmote === 'flex') {
+      const pulse = Math.sin(et * 6) * 0.08;
+      rig.bodyPivot.position.y = 0.03;
+      rig.bodyPivot.rotation.x = -0.08;
+      rig.headGroup.rotation.set(-0.08, Math.sin(et * 3) * 0.15, 0);
+      rig.leftArm.rotation.set(-0.28, 0, 1.38 + pulse);
+      lFore.rotation.set(-1.42, 0, -0.15);
+      if (!rig.heldProp) {
+        rig.rightArm.rotation.set(-0.28, 0, -1.38 - pulse);
+        rFore.rotation.set(-1.42, 0, 0.15);
+      }
+    } else if (activeEmote === 'spin') {
+      rig.bodyPivot.position.y = 0.06 + Math.abs(Math.sin(et * 6)) * 0.08;
+      rig.bodyPivot.rotation.y = et * 7.2;
+      rig.headGroup.rotation.set(0, 0, 0);
+      rig.leftArm.rotation.set(-0.35, 0, 0.95);
+      lFore.rotation.set(-0.25, 0, 0);
+      if (!rig.heldProp) {
+        rig.rightArm.rotation.set(-0.35, 0, -0.95);
+        rFore.rotation.set(-0.25, 0, 0);
       }
     } else if (activeEmote === 'dance') {
       rig.bodyPivot.position.y = Math.abs(Math.sin(et * 9)) * 0.14;
@@ -1390,31 +1690,41 @@ export function animateCharacterRig(
       rig.bodyPivot.rotation.z = Math.sin(et * 9) * 0.14;
       rig.leftLeg.rotation.x = Math.sin(et * 9) * 0.45;
       rig.rightLeg.rotation.x = -Math.sin(et * 9) * 0.45;
-      rig.leftArm.rotation.x = -1.5 + Math.sin(et * 9) * 0.7;
-      rig.leftArm.rotation.z = 0.35 + Math.cos(et * 9) * 0.25;
+      rig.leftArm.rotation.set(-1.35 + Math.sin(et * 9) * 0.65, 0, 0.35 + Math.cos(et * 9) * 0.25);
+      lFore.rotation.set(-0.65, 0, 0);
       if (!rig.heldProp) {
-        rig.rightArm.rotation.x = -1.5 - Math.sin(et * 9) * 0.7;
-        rig.rightArm.rotation.z = -0.35 - Math.cos(et * 9) * 0.25;
+        rig.rightArm.rotation.set(-1.35 - Math.sin(et * 9) * 0.65, 0, -0.35 - Math.cos(et * 9) * 0.25);
+        rFore.rotation.set(-0.65, 0, 0);
       }
-      rig.headGroup.rotation.y = -Math.sin(et * 4.5) * 0.25;
-    } else if (activeEmote === 'celebrate') {
-      rig.bodyPivot.position.y = Math.abs(Math.sin(et * 8)) * 0.22;
-      rig.headGroup.rotation.x = -0.15;
-      rig.leftArm.rotation.x = -2.45 + Math.sin(et * 10) * 0.24;
-      rig.leftArm.rotation.z = 0.32;
+      rig.headGroup.rotation.set(0, -Math.sin(et * 4.5) * 0.25, 0);
+    } else if (activeEmote === 'kpop_groove') {
+      // Crisp pop-idol groove: shoulder pop, hip groove, alternating point/wave snap
+      const beat = et * 8.5;
+      const sideSwitch = Math.sin(beat * 0.5) >= 0 ? 1 : -1;
+      rig.bodyPivot.position.y = Math.abs(Math.sin(beat)) * 0.11;
+      rig.bodyPivot.rotation.y = Math.sin(beat * 0.5) * 0.38;
+      rig.bodyPivot.rotation.z = Math.cos(beat) * 0.12;
+      rig.leftLeg.rotation.x = Math.sin(beat) * 0.35;
+      rig.rightLeg.rotation.x = -Math.sin(beat) * 0.35;
+      rig.headGroup.rotation.set(Math.sin(beat * 2) * 0.08, -Math.sin(beat * 0.5) * 0.2, sideSwitch * 0.12);
+      rig.leftArm.rotation.set(-1.2 + Math.sin(beat) * 0.45, 0, 0.45 + sideSwitch * 0.2);
+      lFore.rotation.set(-0.95 + Math.cos(beat) * 0.35, 0, -0.2);
       if (!rig.heldProp) {
-        rig.rightArm.rotation.x = -2.45 - Math.sin(et * 10) * 0.24;
-        rig.rightArm.rotation.z = -0.32;
+        rig.rightArm.rotation.set(-1.55 - Math.sin(beat) * 0.45, 0, -0.45 + sideSwitch * 0.2);
+        rFore.rotation.set(-0.75 - Math.cos(beat) * 0.4, 0, 0.2);
       }
-    } else if (activeEmote === 'think') {
-      rig.bodyPivot.position.y = Math.sin(et * 2.5) * 0.02;
-      rig.headGroup.rotation.x = 0.14;
-      rig.headGroup.rotation.z = 0.2 + Math.sin(et * 2.5) * 0.05;
-      rig.leftArm.rotation.x = -0.25;
-      rig.leftArm.rotation.z = 0.1;
+    } else if (activeEmote === 'star_hop') {
+      // Energetic star-jump bounce
+      const hopPhase = Math.abs(Math.sin(et * 6.5));
+      rig.bodyPivot.position.y = hopPhase * 0.28;
+      rig.headGroup.rotation.set(-0.12 * hopPhase, 0, Math.sin(et * 6.5) * 0.14);
+      rig.leftLeg.rotation.x = -0.35 * hopPhase;
+      rig.rightLeg.rotation.x = 0.35 * hopPhase;
+      rig.leftArm.rotation.set(-0.4 - hopPhase * 1.4, 0, 0.25 + hopPhase * 0.9);
+      lFore.rotation.set(-0.25, 0, 0);
       if (!rig.heldProp) {
-        rig.rightArm.rotation.x = -1.65;
-        rig.rightArm.rotation.z = -0.38;
+        rig.rightArm.rotation.set(-0.4 - hopPhase * 1.4, 0, -0.25 - hopPhase * 0.9);
+        rFore.rotation.set(-0.25, 0, 0);
       }
     }
   } else {
@@ -1435,46 +1745,67 @@ export function animateCharacterRig(
       k
     );
 
-    if (gesture === 'explain') {
-      rig.leftArm.rotation.x = THREE.MathUtils.lerp(rig.leftArm.rotation.x, -0.75 + Math.sin(time * 5) * 0.2, k);
-      rig.leftArm.rotation.z = THREE.MathUtils.lerp(rig.leftArm.rotation.z, 0, k);
+    if (gesture === 'panic') {
+      rig.bodyPivot.position.y = Math.abs(Math.sin(time * 13)) * 0.07;
+      rig.bodyPivot.rotation.z = Math.sin(time * 14) * 0.09;
+      rig.headGroup.rotation.set(-0.08, Math.sin(time * 11) * 0.42, Math.sin(time * 9) * 0.14);
+      rig.leftArm.rotation.set(-1.35 + Math.sin(time * 15) * 0.32, 0, 0.42);
+      lFore.rotation.set(-0.85, 0, 0);
       if (!rig.heldProp) {
-        rig.rightArm.rotation.x = THREE.MathUtils.lerp(rig.rightArm.rotation.x, -0.6 + Math.cos(time * 4) * 0.18, k);
-        rig.rightArm.rotation.z = THREE.MathUtils.lerp(rig.rightArm.rotation.z, 0, k);
+        rig.rightArm.rotation.set(-1.35 - Math.sin(time * 15) * 0.32, 0, -0.42);
+        rFore.rotation.set(-0.85, 0, 0);
+      }
+    } else if (gesture === 'explain') {
+      rig.leftArm.rotation.x = THREE.MathUtils.lerp(rig.leftArm.rotation.x, -0.65 + Math.sin(time * 5) * 0.2, k);
+      rig.leftArm.rotation.z = THREE.MathUtils.lerp(rig.leftArm.rotation.z, 0.08, k);
+      lFore.rotation.set(THREE.MathUtils.lerp(lFore.rotation.x, -0.55, k), 0, 0);
+      if (!rig.heldProp) {
+        rig.rightArm.rotation.x = THREE.MathUtils.lerp(rig.rightArm.rotation.x, -0.5 + Math.cos(time * 4) * 0.18, k);
+        rig.rightArm.rotation.z = THREE.MathUtils.lerp(rig.rightArm.rotation.z, -0.08, k);
+        rFore.rotation.set(THREE.MathUtils.lerp(rFore.rotation.x, -0.5, k), 0, 0);
       }
       rig.headGroup.rotation.y = Math.sin(time * 2.5) * 0.16;
+      rig.headGroup.rotation.z = THREE.MathUtils.lerp(rig.headGroup.rotation.z, 0, k);
     } else if (gesture === 'point') {
       rig.leftArm.rotation.x = THREE.MathUtils.lerp(rig.leftArm.rotation.x, -1.25, k);
       rig.leftArm.rotation.z = THREE.MathUtils.lerp(rig.leftArm.rotation.z, 0, k);
+      lFore.rotation.set(THREE.MathUtils.lerp(lFore.rotation.x, -0.15, k), 0, 0);
       if (!rig.heldProp) {
         rig.rightArm.rotation.x = THREE.MathUtils.lerp(rig.rightArm.rotation.x, -0.2, k);
         rig.rightArm.rotation.z = THREE.MathUtils.lerp(rig.rightArm.rotation.z, 0, k);
+        rFore.rotation.set(0, 0, 0);
       }
       rig.headGroup.rotation.y = THREE.MathUtils.lerp(rig.headGroup.rotation.y, 0.18, k);
     } else if (gesture === 'nod') {
       rig.headGroup.rotation.x = Math.sin(time * 6) * 0.18;
       rig.leftArm.rotation.x = THREE.MathUtils.lerp(rig.leftArm.rotation.x, -0.15, k);
       rig.leftArm.rotation.z = THREE.MathUtils.lerp(rig.leftArm.rotation.z, 0, k);
+      lFore.rotation.set(0, 0, 0);
     } else if (gesture === 'ponder') {
-      rig.leftArm.rotation.x = THREE.MathUtils.lerp(rig.leftArm.rotation.x, -0.95, k);
-      rig.leftArm.rotation.z = THREE.MathUtils.lerp(rig.leftArm.rotation.z, 0, k);
+      rig.leftArm.rotation.x = THREE.MathUtils.lerp(rig.leftArm.rotation.x, -0.68, k);
+      rig.leftArm.rotation.z = THREE.MathUtils.lerp(rig.leftArm.rotation.z, 0.12, k);
+      lFore.rotation.set(THREE.MathUtils.lerp(lFore.rotation.x, -0.9, k), 0, 0);
       rig.headGroup.rotation.z = THREE.MathUtils.lerp(rig.headGroup.rotation.z, 0.12, k);
     } else if (gesture === 'gearup') {
-      rig.leftArm.rotation.x = -1.4 + Math.sin(time * 6) * 0.2;
+      rig.leftArm.rotation.x = -1.1 + Math.sin(time * 6) * 0.2;
       rig.leftArm.rotation.z = THREE.MathUtils.lerp(rig.leftArm.rotation.z, 0, k);
+      lFore.rotation.set(-0.6, 0, 0);
       if (!rig.heldProp) {
-        rig.rightArm.rotation.x = -1.4 - Math.sin(time * 6) * 0.2;
+        rig.rightArm.rotation.x = -1.1 - Math.sin(time * 6) * 0.2;
         rig.rightArm.rotation.z = THREE.MathUtils.lerp(rig.rightArm.rotation.z, 0, k);
+        rFore.rotation.set(-0.6, 0, 0);
       }
     } else if (gesture === 'scratch_head') {
-      rig.headGroup.rotation.x = THREE.MathUtils.lerp(rig.headGroup.rotation.x, -0.06, k);
+      rig.headGroup.rotation.x = THREE.MathUtils.lerp(rig.headGroup.rotation.x, -0.04, k);
       rig.headGroup.rotation.y = THREE.MathUtils.lerp(rig.headGroup.rotation.y, Math.sin(time * 1.8) * 0.08, k);
       rig.headGroup.rotation.z = THREE.MathUtils.lerp(rig.headGroup.rotation.z, 0.16 + Math.sin(time * 2.8) * 0.04, k);
       rig.leftArm.rotation.x = THREE.MathUtils.lerp(rig.leftArm.rotation.x, -0.16, k);
       rig.leftArm.rotation.z = THREE.MathUtils.lerp(rig.leftArm.rotation.z, 0.08, k);
+      lFore.rotation.set(THREE.MathUtils.lerp(lFore.rotation.x, -0.2, k), 0, 0);
       if (!rig.heldProp) {
-        rig.rightArm.rotation.x = THREE.MathUtils.lerp(rig.rightArm.rotation.x, -2.28 + Math.sin(time * 10.5) * 0.14, k);
-        rig.rightArm.rotation.z = THREE.MathUtils.lerp(rig.rightArm.rotation.z, -0.44 + Math.cos(time * 10.5) * 0.08, k);
+        rig.rightArm.rotation.x = THREE.MathUtils.lerp(rig.rightArm.rotation.x, -1.62, k);
+        rig.rightArm.rotation.z = THREE.MathUtils.lerp(rig.rightArm.rotation.z, -0.78, k);
+        rFore.rotation.set(THREE.MathUtils.lerp(rFore.rotation.x, -1.25 + Math.sin(time * 10.5) * 0.12, k), 0, THREE.MathUtils.lerp(rFore.rotation.z, 0.68, k));
       }
     } else if (gesture === 'tilt_curious') {
       rig.headGroup.rotation.x = THREE.MathUtils.lerp(rig.headGroup.rotation.x, 0.16, k);
@@ -1482,9 +1813,11 @@ export function animateCharacterRig(
       rig.headGroup.rotation.z = THREE.MathUtils.lerp(rig.headGroup.rotation.z, 0.24 + Math.sin(time * 2.2) * 0.05, k);
       rig.leftArm.rotation.x = THREE.MathUtils.lerp(rig.leftArm.rotation.x, -0.25, k);
       rig.leftArm.rotation.z = THREE.MathUtils.lerp(rig.leftArm.rotation.z, 0.05, k);
+      lFore.rotation.set(THREE.MathUtils.lerp(lFore.rotation.x, -0.25, k), 0, 0);
       if (!rig.heldProp) {
-        rig.rightArm.rotation.x = THREE.MathUtils.lerp(rig.rightArm.rotation.x, -2.05 + Math.sin(time * 8.0) * 0.1, k);
-        rig.rightArm.rotation.z = THREE.MathUtils.lerp(rig.rightArm.rotation.z, -0.38, k);
+        rig.rightArm.rotation.x = THREE.MathUtils.lerp(rig.rightArm.rotation.x, -0.82, k);
+        rig.rightArm.rotation.z = THREE.MathUtils.lerp(rig.rightArm.rotation.z, -0.22, k);
+        rFore.rotation.set(THREE.MathUtils.lerp(rFore.rotation.x, -1.22 + Math.sin(time * 4.5) * 0.06, k), 0, THREE.MathUtils.lerp(rFore.rotation.z, 0.36, k));
       }
     } else {
       rig.headGroup.rotation.x = THREE.MathUtils.lerp(rig.headGroup.rotation.x, 0, k);
@@ -1492,18 +1825,50 @@ export function animateCharacterRig(
       rig.headGroup.rotation.z = THREE.MathUtils.lerp(rig.headGroup.rotation.z, 0, k);
       rig.leftArm.rotation.x = THREE.MathUtils.lerp(rig.leftArm.rotation.x, Math.sin(time * 2) * 0.04, k);
       rig.leftArm.rotation.z = THREE.MathUtils.lerp(rig.leftArm.rotation.z, 0, k);
+      lFore.rotation.set(THREE.MathUtils.lerp(lFore.rotation.x, -0.14, k), 0, 0);
       if (!rig.heldProp) {
         rig.rightArm.rotation.x = THREE.MathUtils.lerp(rig.rightArm.rotation.x, -Math.sin(time * 2) * 0.04, k);
         rig.rightArm.rotation.z = THREE.MathUtils.lerp(rig.rightArm.rotation.z, 0, k);
+        rFore.rotation.set(THREE.MathUtils.lerp(rFore.rotation.x, -0.14, k), 0, 0);
       }
     }
 
     if (rig.capeMesh) {
       rig.capeMesh.rotation.x = THREE.MathUtils.lerp(
         rig.capeMesh.rotation.x,
-        0.16 + Math.sin(time * 2) * 0.03,
+        0.14 + Math.sin(time * 2) * 0.025,
         k
       );
+    }
+  }
+
+  // Flexible cloth wave deformation on capes (shoulder pinned at y=0, smooth wave toward hem, zero leg clipping)
+  if (rig.capeCloths && rig.capeCloths.length > 0) {
+    const isMoving = animState === 'walk' || animState === 'run' || animState === 'jump';
+    const waveSpeed = animState === 'run' ? 9.5 : animState === 'walk' ? 6.2 : 2.6;
+    const waveBoost = animState === 'run' ? 1.55 : isMoving ? 1.25 : 0.72;
+    for (let c = 0; c < rig.capeCloths.length; c++) {
+      const cloth = rig.capeCloths[c];
+      const posAttr = cloth.geo.attributes.position as THREE.BufferAttribute;
+      const arr = posAttr.array as Float32Array;
+      const base = cloth.basePos;
+      for (let i = 0; i < arr.length; i += 3) {
+        const bx = base[i];
+        const by = base[i + 1];
+        const bz = base[i + 2];
+        const vDrop = Math.min(1, Math.max(0, -by / cloth.height));
+        const pin = vDrop * vDrop;
+        const ripple =
+          Math.sin(time * waveSpeed + vDrop * 4.2 + bx * 3.1) *
+          cloth.amplitude *
+          waveBoost *
+          pin;
+        // Negative Z pulls hem backward away from legs so it never clips into the body
+        arr[i] = bx + Math.sin(time * (waveSpeed * 0.6) + vDrop * 2.5) * 0.02 * pin;
+        arr[i + 1] = by;
+        arr[i + 2] = bz - Math.abs(ripple) * 0.55 + ripple * 0.45 - (isMoving ? 0.1 * pin : 0);
+      }
+      posAttr.needsUpdate = true;
     }
   }
 
@@ -1523,6 +1888,10 @@ export function animateCharacterRig(
         acc.obj.scale.setScalar(s);
       } else if (acc.mode === 'wave') {
         acc.obj.rotation.x = (acc.baseRotX ?? 0.16) + Math.sin(time * 2.6 + (acc.phase ?? 0)) * 0.07;
+      } else if (acc.mode === 'wing_L') {
+        acc.obj.rotation.y = 0.42 + Math.sin(time * 3.2) * 0.12;
+      } else if (acc.mode === 'wing_R') {
+        acc.obj.rotation.y = -0.42 - Math.sin(time * 3.2) * 0.12;
       }
     }
   }

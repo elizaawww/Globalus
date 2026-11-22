@@ -174,33 +174,37 @@ export interface EmoteDef {
 }
 
 export interface MusicSearchResult {
-  trackId: string;
+  id: string;
   title: string;
   artist: string;
-  album: string;
-  artworkUrl: string;
+  album?: string;
+  artworkUrl?: string;
   previewUrl: string;
   durationMs: number;
+  source: 'itunes';
 }
 
-export type RankingCategory = 'fastest' | 'items' | 'emotes';
+export type RankingCategory = 'fastest' | 'most_items' | 'most_emotes';
 
 export interface RankingEntry {
-  playerKey: string;
+  playerId: string;
   playerName: string;
+  avatarColor?: string;
   bestCompletionMs: number | null;
-  unlockedItemCount: number;
-  unlockedItemIds: string[];
-  unlockedEmoteCount: number;
-  unlockedEmoteIds: EmoteId[];
-  achievedAt: number;
+  itemCount: number;
+  emoteCount: number;
+  completedChapters: number;
+  totalExp: number;
   updatedAt: number;
 }
 
 export interface RankingsResponse {
+  available: boolean;
   fastest: RankingEntry[];
-  items: RankingEntry[];
-  emotes: RankingEntry[];
+  mostItems: RankingEntry[];
+  mostEmotes: RankingEntry[];
+  updatedAt: number;
+  error?: string;
 }
 
 export type GraphicsQuality = 'low' | 'medium' | 'high';

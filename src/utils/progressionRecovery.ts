@@ -1,17 +1,32 @@
-import { CHAPTER_INFO, CUTSCENES, INVENTORY_ITEMS } from '../data/gameData';
+import { CHAPTER_INFO, CUTSCENES, EMOTES, INVENTORY_ITEMS } from '../data/gameData';
 import { isPlayerClearOfRoomAndDoor, ROOMS } from '../data/stationLayout';
 import {
   ChapterId,
   ChapterProgressState,
   CutsceneCharacterId,
   CutsceneCheckpoint,
+  EmoteId,
   HeadwearTransform,
   InventoryItemDef,
   MissionId,
+  NpcCharacterId,
   RoomId,
   SaveState,
   TheoryBookId,
 } from '../types/game';
+
+export const STARTER_EMOTE_IDS: EmoteId[] = EMOTES.filter((e) => e.isStarter).map((e) => e.id);
+
+export const CHAPTER_UNLOCKED_EMOTES: Record<ChapterId, EmoteId> = {
+  1: 'salute',
+  2: 'shrug',
+  3: 'flex',
+  4: 'cheer',
+  5: 'spin',
+};
+
+const ALL_EMOTE_IDS = new Set<EmoteId>(EMOTES.map((e) => e.id));
+const VALID_NPCS = new Set<NpcCharacterId>(['rex', 'bima', 'fuzzy', 'bob', 'ratu_laras']);
 
 export const STORAGE_KEY = 'globalus_mission_globalization_v1';
 
@@ -82,12 +97,13 @@ export function getDefaultSaveState(): SaveState {
       headwearTransform: { ...DEFAULT_HEADWEAR_TRANSFORM },
     },
     settings: {
-      musicVolume: 0.45,
+      musicVolume: 0.42,
       sfxVolume: 0.75,
       muted: false,
       musicTrack: 'cosmic_drift',
-      musicPaused: false,
+      musicPaused: true,
       musicMuted: false,
+      selectedExternalTrack: null,
       voiceEnabled: true,
       voiceVolume: 0.9,
       cameraSensitivity: 1.0,
@@ -117,6 +133,13 @@ export function getDefaultSaveState(): SaveState {
     readBooks: [],
     readBooksByPlayer: { astronaut: [] },
     lockedCompletedRooms: [],
+    metNpcs: [],
+    unlockedEmotes: [...STARTER_EMOTE_IDS],
+    secretTvCompleted: false,
+    replayMode: false,
+    runStartedAt: null,
+    bestCompletionMs: null,
+    pendingRankingSync: false,
     activeCutsceneCheckpoint: null,
     pendingRewardChapter: null,
     chapterProgress: {
@@ -154,26 +177,54 @@ export const SIGNATURE_CHAPTER_REWARD: Record<ChapterId, string> = {
 
 export function pickChapterRewardOnce(
   chap: ChapterId,
-  unlockedItems: string[]
+  unlockedItems: string[],
+  allowAlternateInPool = false
 ): { rewardItem: InventoryItemDef; specialItem: InventoryItemDef; alreadyClaimed: boolean } {
   const chapInfo = CHAPTER_INFO[chap];
   const specialItem = INVENTORY_ITEMS.find((i) => i.id === chapInfo.specialItemId)!;
+  const unowned = chapInfo.rewardPool.filter((id) => !unlockedItems.includes(id));
   const ownedRewardId = chapInfo.rewardPool.find((id) => unlockedItems.includes(id));
   const specialOwned = unlockedItems.includes(chapInfo.specialItemId);
 
-  if (ownedRewardId && specialOwned) {
+  if (!allowAlternateInPool && ownedRewardId && specialOwned) {
+    const rewardItem = INVENTORY_ITEMS.find((i) => i.id === ownedRewardId)!;
+    return { rewardItem, specialItem, alreadyClaimed: true };
+  }
+
+  if (allowAlternateInPool && unowned.length === 0 && ownedRewardId && specialOwned) {
     const rewardItem = INVENTORY_ITEMS.find((i) => i.id === ownedRewardId)!;
     return { rewardItem, specialItem, alreadyClaimed: true };
   }
 
   const signatureId = SIGNATURE_CHAPTER_REWARD[chap];
-  const unowned = chapInfo.rewardPool.filter((id) => !unlockedItems.includes(id));
   const pool = unowned.length > 0 ? unowned : chapInfo.rewardPool;
   const chosenId = pool.includes(signatureId)
     ? signatureId
     : pool[Math.floor(Math.random() * pool.length)];
   const rewardItem = INVENTORY_ITEMS.find((i) => i.id === chosenId)!;
   return { rewardItem, specialItem, alreadyClaimed: false };
+}
+
+export function createChapterReplayState(prev: SaveState): SaveState {
+  return {
+    ...prev,
+    completedMissions: [],
+    unlockedChapter: 1,
+    completedChapters: [],
+    completedCutscenes: prev.completedCutscenes.includes('prolog') ? ['prolog'] : [],
+    lockedCompletedRooms: [],
+    activeCutsceneCheckpoint: null,
+    pendingRewardChapter: null,
+    replayMode: true,
+    runStartedAt: Date.now(),
+    chapterProgress: {
+      1: { missionsCompleted: false, cutsceneCompleted: false, chapterCompleted: false, rewardClaimed: false },
+      2: { missionsCompleted: false, cutsceneCompleted: false, chapterCompleted: false, rewardClaimed: false },
+      3: { missionsCompleted: false, cutsceneCompleted: false, chapterCompleted: false, rewardClaimed: false },
+      4: { missionsCompleted: false, cutsceneCompleted: false, chapterCompleted: false, rewardClaimed: false },
+      5: { missionsCompleted: false, cutsceneCompleted: false, chapterCompleted: false, rewardClaimed: false },
+    },
+  };
 }
 
 function isLegacyThreeChapterSave(raw: Partial<SaveState>): boolean {
@@ -428,7 +479,36 @@ export function normalizeAndRecoverSaveState(raw: Partial<SaveState> | null | un
             : defaults.settings.musicTrack;
 
   const hasExistingProgress =
-    Boolean(raw.prologSeen) || validMissions.length > 0 || completedChapters.length > 0;
+    Boolean(raw.prologSeen) || validMissions.length > 0 || completedChapters.length > 0 || Boolean(raw.replayMode);
+
+  const metNpcs: NpcCharacterId[] = Array.isArray(raw.metNpcs)
+    ? Array.from(new Set(raw.metNpcs.filter((n): n is NpcCharacterId => typeof n === 'string' && VALID_NPCS.has(n as NpcCharacterId))))
+    : [];
+
+  const unlockedEmoteSet = new Set<EmoteId>(STARTER_EMOTE_IDS);
+  if (Array.isArray(raw.unlockedEmotes)) {
+    for (const em of raw.unlockedEmotes) {
+      if (typeof em === 'string' && ALL_EMOTE_IDS.has(em as EmoteId)) {
+        unlockedEmoteSet.add(em as EmoteId);
+      }
+    }
+  }
+  for (const ch of completedChapters) {
+    const chEmote = CHAPTER_UNLOCKED_EMOTES[ch];
+    if (chEmote) unlockedEmoteSet.add(chEmote);
+  }
+  const secretTvCompleted = Boolean(raw.secretTvCompleted);
+  if (secretTvCompleted) {
+    unlockedEmoteSet.add('kpop_groove');
+    unlockedEmoteSet.add('star_hop');
+  }
+
+  const selectedExternalTrack =
+    raw.settings?.selectedExternalTrack &&
+    typeof raw.settings.selectedExternalTrack.previewUrl === 'string' &&
+    raw.settings.selectedExternalTrack.previewUrl.startsWith('http')
+      ? raw.settings.selectedExternalTrack
+      : null;
 
   const normalizedState: SaveState = {
     ...defaults,
@@ -441,6 +521,8 @@ export function normalizeAndRecoverSaveState(raw: Partial<SaveState> | null | un
     settings: {
       ...defaults.settings,
       ...(raw.settings || {}),
+      musicPaused: raw.settings?.musicPaused !== undefined ? Boolean(raw.settings.musicPaused) : defaults.settings.musicPaused,
+      selectedExternalTrack,
       musicTrack: normalizedTrack,
     },
     creatorInfo: { ...defaults.creatorInfo, ...(raw.creatorInfo || {}) },
@@ -454,6 +536,14 @@ export function normalizeAndRecoverSaveState(raw: Partial<SaveState> | null | un
     readBooks,
     readBooksByPlayer: normalizedByPlayer,
     lockedCompletedRooms: [],
+    metNpcs,
+    unlockedEmotes: Array.from(unlockedEmoteSet),
+    secretTvCompleted,
+    replayMode: Boolean(raw.replayMode),
+    runStartedAt: typeof raw.runStartedAt === 'number' && Number.isFinite(raw.runStartedAt) ? raw.runStartedAt : null,
+    bestCompletionMs:
+      typeof raw.bestCompletionMs === 'number' && Number.isFinite(raw.bestCompletionMs) ? raw.bestCompletionMs : null,
+    pendingRankingSync: Boolean(raw.pendingRankingSync),
     prologSeen: hasExistingProgress,
     tutorialSeen: Boolean(raw.tutorialSeen) || hasExistingProgress,
     activeCutsceneCheckpoint: activeCheckpoint,

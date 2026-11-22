@@ -150,10 +150,20 @@ export function useMultiplayerClient(
         lastError: null,
       }));
 
-      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const customMpUrl = (import.meta.env.VITE_MP_SERVER_URL as string | undefined)?.trim();
+      let wsUrl = '';
+      if (customMpUrl) {
+        let normalized = customMpUrl.replace(/^https:\/\//i, 'wss://').replace(/^http:\/\//i, 'ws://').replace(/\/+$/, '');
+        if (!normalized.endsWith('/ws')) normalized = `${normalized}/ws`;
+        wsUrl = normalized;
+      } else {
+        const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        wsUrl = `${proto}//${window.location.host}/ws`;
+      }
+
       let ws: WebSocket;
       try {
-        ws = new WebSocket(`${proto}//${window.location.host}/ws`);
+        ws = new WebSocket(wsUrl);
       } catch {
         setState((s) => ({
           ...s,

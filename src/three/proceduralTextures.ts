@@ -137,37 +137,86 @@ export function createWallPanelTexture(maxAniso = 4): THREE.CanvasTexture {
 
 export function createBatikTexture(bgHex: string, goldHex = '#f59e0b'): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
-  canvas.width = 256;
-  canvas.height = 256;
+  canvas.width = 512;
+  canvas.height = 512;
   const ctx = canvas.getContext('2d')!;
 
+  // Rich base fabric weave
   ctx.fillStyle = bgHex;
-  ctx.fillRect(0, 0, 256, 256);
+  ctx.fillRect(0, 0, 512, 512);
 
+  // Subtle woven diagonal Parang shadow bands
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+  ctx.lineWidth = 10;
+  for (let i = -512; i < 1024; i += 64) {
+    ctx.beginPath();
+    ctx.moveTo(i, 0);
+    ctx.bezierCurveTo(i + 128, 170, i + 256, 340, i + 384, 512);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // Stylized Mega Mendung layered cloud bands (top & bottom border bands)
+  const drawCloudBand = (yBase: number, alpha: number) => {
+    ctx.save();
+    ctx.strokeStyle = goldHex;
+    ctx.fillStyle = `rgba(253, 224, 71, ${alpha})`;
+    ctx.lineWidth = 2.5;
+    for (let x = -32; x <= 544; x += 128) {
+      ctx.beginPath();
+      ctx.arc(x, yBase, 42, Math.PI, 0, false);
+      ctx.arc(x + 48, yBase + 6, 30, Math.PI, 0, false);
+      ctx.arc(x + 92, yBase, 34, Math.PI, 0, false);
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
+  };
+  drawCloudBand(92, 0.16);
+  drawCloudBand(256, 0.14);
+  drawCloudBand(420, 0.16);
+
+  // Kawung 4-petal geometric medallions with gold filigree centers
   ctx.strokeStyle = goldHex;
-  ctx.fillStyle = 'rgba(251, 191, 36, 0.38)';
-  ctx.lineWidth = 2.5;
-
-  const step = 64;
-  for (let x = 0; x <= 256; x += step) {
-    for (let y = 0; y <= 256; y += step) {
+  ctx.lineWidth = 2.8;
+  const step = 128;
+  for (let x = 0; x <= 512; x += step) {
+    for (let y = 0; y <= 512; y += step) {
       for (let a = 0; a < 4; a++) {
         ctx.save();
         ctx.translate(x, y);
         ctx.rotate((a * Math.PI) / 2 + Math.PI / 4);
+        ctx.fillStyle = 'rgba(245, 158, 11, 0.34)';
         ctx.beginPath();
-        ctx.ellipse(18, 0, 14, 7, 0, 0, Math.PI * 2);
+        ctx.ellipse(28, 0, 22, 11, 0, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
+        // Inner petal vein
+        ctx.fillStyle = 'rgba(254, 243, 199, 0.55)';
+        ctx.beginPath();
+        ctx.ellipse(28, 0, 10, 4, 0, 0, Math.PI * 2);
+        ctx.fill();
         ctx.restore();
       }
-      ctx.beginPath();
-      ctx.arc(x, y, 5, 0, Math.PI * 2);
+      // Cecek (golden dots) around hub
       ctx.fillStyle = '#fde68a';
+      ctx.beginPath();
+      ctx.arc(x, y, 8, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = 'rgba(251, 191, 36, 0.38)';
+      for (let d = 0; d < 8; d++) {
+        const ang = (d / 8) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.arc(x + Math.cos(ang) * 44, y + Math.sin(ang) * 44, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
   }
+
+  // Ornamental gold border trim along top/bottom for sash & chest wrap crispness
+  ctx.fillStyle = goldHex;
+  ctx.fillRect(0, 0, 512, 12);
+  ctx.fillRect(0, 500, 512, 12);
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -250,7 +299,7 @@ export function createEarthTexture(): THREE.CanvasTexture {
 }
 
 export function createScreenTexture(
-  mode: 'worldmap' | 'radar' | 'lab' | 'market' | 'network' | 'galaxy' | 'inequality' | 'impact' | 'info'
+  mode: 'worldmap' | 'radar' | 'lab' | 'market' | 'network' | 'galaxy' | 'inequality' | 'impact' | 'info' | 'tv_culture'
 ): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
   canvas.width = 512;
@@ -428,6 +477,25 @@ export function createScreenTexture(
     ctx.fillText('N: BALANCE  -  WORLD ECON  -  OBSERVATORY', 64, 178);
     ctx.fillStyle = '#10b981';
     ctx.fillText('STATUS: GLOBAL NETWORK RECOVERY ACTIVE', 64, 218);
+  } else if (mode === 'tv_culture') {
+    const bg = ctx.createLinearGradient(0, 0, 512, 256);
+    bg.addColorStop(0, '#3b0764');
+    bg.addColorStop(0.5, '#0f172a');
+    bg.addColorStop(1, '#701a75');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, 512, 256);
+    ctx.fillStyle = '#f472b6';
+    ctx.font = 'bold 20px sans-serif';
+    ctx.fillText('SIARAN BUDAYA GLOBAL', 36, 48);
+    ctx.fillStyle = '#fde047';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.fillText('AKULTURASI · MUSIK DUNIA · EMOTE RAHASIA', 36, 78);
+    const barCols = ['#ec4899', '#a855f7', '#38bdf8', '#10b981', '#f59e0b', '#f43f5e'];
+    for (let i = 0; i < 12; i++) {
+      const h = 38 + ((i * 37) % 92);
+      ctx.fillStyle = barCols[i % barCols.length];
+      ctx.fillRect(36 + i * 38, 224 - h, 24, h);
+    }
   } else {
     ctx.fillStyle = '#38bdf8';
     ctx.font = 'bold 24px monospace';

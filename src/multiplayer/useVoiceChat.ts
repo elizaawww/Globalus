@@ -383,6 +383,76 @@ export function useVoiceChat({
     [enabled, getOrCreatePeer]
   );
 
+  const pauseMicSoft = useCallback(() => {
+    if (vadTimerRef.current !== null) {
+      window.clearInterval(vadTimerRef.current);
+      vadTimerRef.current = null;
+    }
+    if (localStreamRef.current) {
+      localStreamRef.current.getAudioTracks().forEach((t) => {
+        t.enabled = false;
+      });
+    }
+    micOnRef.current = false;
+    mutedRef.current = false;
+    speakingRef.current = false;
+    setMicOn(false);
+    setMuted(false);
+    setSpeaking(false);
+    sendVoiceStateRef.current(false, false, false);
+  }, []);
+
+  const startVadLoop = useCallback((stream: MediaStream) => {
+    if (vadTimerRef.current !== null) {
+      window.clearInterval(vadTimerRef.current);
+      vadTimerRef.current = null;
+    }
+    if (audioCtxRef.current) {
+      if (audioCtxRef.current.state === 'suspended') {
+        audioCtxRef.current.resume().catch(() => {});
+      }
+    } else {
+      const AudioCtx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (AudioCtx) {
+        const ctx = new AudioCtx();
+        const src = ctx.createMediaStreamSource(stream);
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 512;
+        src.connect(analyser);
+        audioCtxRef.current = ctx;
+        analyserRef.current = analyser;
+      }
+    }
+
+    if (!analyserRef.current) return;
+    const buf = new Uint8Array(analyserRef.current.fftSize);
+    vadTimerRef.current = window.setInterval(() => {
+      if (!micOnRef.current || mutedRef.current || !analyserRef.current) {
+        if (speakingRef.current) {
+          speakingRef.current = false;
+          setSpeaking(false);
+          sendVoiceStateRef.current(micOnRef.current, mutedRef.current, false);
+        }
+        return;
+      }
+      analyserRef.current.getByteTimeDomainData(buf);
+      let sumSq = 0;
+      for (let i = 0; i < buf.length; i++) {
+        const v = (buf[i] - 128) / 128;
+        sumSq += v * v;
+      }
+      const rms = Math.sqrt(sumSq / buf.length);
+      const nowSpeaking = rms > 0.024;
+      if (nowSpeaking !== speakingRef.current) {
+        speakingRef.current = nowSpeaking;
+        setSpeaking(nowSpeaking);
+        sendVoiceStateRef.current(true, mutedRef.current, nowSpeaking);
+      }
+    }, 130);
+  }, []);
+
   // Explicit user-triggered On Mic / Off Mic
   const toggleMic = useCallback(async () => {
     if (!voiceFeatureRef.current) {
@@ -390,14 +460,47 @@ export function useVoiceChat({
       return;
     }
     if (micOnRef.current) {
-      stopMicHardware();
+      pauseMicSoft();
       return;
     }
 
     setMicError(null);
+
+    // Reuse existing live stream across Off -> On toggles (avoids redundant permission prompts)
+    const existingLiveTracks = localStreamRef.current?.getAudioTracks().filter((t) => t.readyState === 'live') ?? [];
+    if (localStreamRef.current && existingLiveTracks.length > 0) {
+      existingLiveTracks.forEach((t) => {
+        t.enabled = true;
+      });
+      startVadLoop(localStreamRef.current);
+      micOnRef.current = true;
+      mutedRef.current = false;
+      speakingRef.current = false;
+      setMicOn(true);
+      setMuted(false);
+      setSpeaking(false);
+      sendVoiceStateRef.current(true, false, false);
+      return;
+    }
+
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       setMicError('Browser atau perangkat tidak mendukung akses mikrofon.');
       return;
+    }
+
+    // Pre-check Permissions API if supported to surface clear message when denied
+    try {
+      if (navigator.permissions?.query) {
+        const status = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+        if (status.state === 'denied') {
+          setMicError(
+            'Izin mikrofon diblokir browser. Aktifkan izin mikrofon di ikon gembok/alamat situs lalu klik On Mic lagi.'
+          );
+          return;
+        }
+      }
+    } catch {
+      // Permissions API for microphone is not supported in all browsers; continue to getUserMedia
     }
 
     try {
@@ -427,7 +530,6 @@ export function useVoiceChat({
             entry.pc.addTrack(track, stream);
           }
         });
-        // Update transceiver direction if recvonly was previously added
         entry.pc.getTransceivers().forEach((tr) => {
           if (tr.receiver.track?.kind === 'audio' && tr.direction === 'recvonly') {
             tr.direction = 'sendrecv';
@@ -445,45 +547,11 @@ export function useVoiceChat({
         }
       });
 
-      // Set up real Web Audio RMS voice-activity detector (~130ms polling)
-      const AudioCtx =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      if (AudioCtx) {
-        const ctx = new AudioCtx();
-        const src = ctx.createMediaStreamSource(stream);
-        const analyser = ctx.createAnalyser();
-        analyser.fftSize = 512;
-        src.connect(analyser);
-        audioCtxRef.current = ctx;
-        analyserRef.current = analyser;
-        const buf = new Uint8Array(analyser.fftSize);
+      startVadLoop(stream);
 
-        vadTimerRef.current = window.setInterval(() => {
-          if (!micOnRef.current || mutedRef.current || !analyserRef.current) {
-            if (speakingRef.current) {
-              speakingRef.current = false;
-              setSpeaking(false);
-              sendVoiceStateRef.current(micOnRef.current, mutedRef.current, false);
-            }
-            return;
-          }
-          analyserRef.current.getByteTimeDomainData(buf);
-          let sumSq = 0;
-          for (let i = 0; i < buf.length; i++) {
-            const v = (buf[i] - 128) / 128;
-            sumSq += v * v;
-          }
-          const rms = Math.sqrt(sumSq / buf.length);
-          const nowSpeaking = rms > 0.025;
-          if (nowSpeaking !== speakingRef.current) {
-            speakingRef.current = nowSpeaking;
-            setSpeaking(nowSpeaking);
-            sendVoiceStateRef.current(true, mutedRef.current, nowSpeaking);
-          }
-        }, 130);
-      }
-
+      micOnRef.current = true;
+      mutedRef.current = false;
+      speakingRef.current = false;
       setMicOn(true);
       setMuted(false);
       setSpeaking(false);
@@ -491,7 +559,9 @@ export function useVoiceChat({
     } catch (err) {
       const name = err instanceof Error ? err.name : '';
       if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
-        setMicError('Izin mikrofon ditolak browser. Kamu tetap dapat bermain dengan normal dan mendengar tim.');
+        setMicError(
+          'Izin mikrofon ditolak browser. Aktifkan izin mikrofon di pengaturan situs jika ingin berbicara.'
+        );
       } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
         setMicError('Mikrofon tidak ditemukan di perangkat ini. Game tetap berjalan normal.');
       } else {
@@ -499,7 +569,7 @@ export function useVoiceChat({
       }
       stopMicHardware();
     }
-  }, [stopMicHardware]);
+  }, [pauseMicSoft, startVadLoop, stopMicHardware]);
 
   // Quick Mute / Unmute (immediately silences track to peers)
   const toggleMute = useCallback(() => {

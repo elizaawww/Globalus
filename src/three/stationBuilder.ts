@@ -12,6 +12,7 @@ import { MissionId, RoomId } from '../types/game';
 import {
   populateStationFurniture,
   RoomGroupEntry,
+  SecretTvObject,
   SpinnerEntry,
   TheoryBookObject,
   VentObject,
@@ -123,6 +124,7 @@ export interface StationWorld {
   vents: VentObject[];
   theoryBooks: TheoryBookObject[];
   terminals: TerminalObject[];
+  secretTv: SecretTvObject;
   interactHitMeshes: THREE.Object3D[];
   wallBoxes: THREE.Box3[];
   animatedSpinners: SpinnerEntry[];
@@ -205,7 +207,8 @@ export function buildStationWorld(scene: THREE.Scene, maxAniso: number, isSoftwa
     const floorGeo = new THREE.BoxGeometry(w, 0.2, d);
     scaleBoxTopBottomUv(floorGeo, w / 4, d / 4);
     const floor = new THREE.Mesh(floorGeo, floorMat);
-    floor.position.set(cx, -0.1, cz);
+    // Offset non-room corridor slabs slightly below room floor top to avoid coplanar seam Z-fighting
+    floor.position.set(cx, rect.roomId ? -0.1 : -0.106, cz);
     floor.receiveShadow = !isSoftwareGl;
     stationGroup.add(floor);
 
@@ -222,11 +225,12 @@ export function buildStationWorld(scene: THREE.Scene, maxAniso: number, isSoftwa
       }
       const stripThickness = 0.14;
       const stripY = 0.012;
-      const sN = new THREE.Mesh(new THREE.BoxGeometry(w - 0.6, 0.02, stripThickness), trimMat);
+      const sN = new THREE.Mesh(new THREE.BoxGeometry(Math.max(0.5, w - 0.6), 0.02, stripThickness), trimMat);
       sN.position.set(cx, stripY, rect.minZ + 0.35);
       const sS = sN.clone();
       sS.position.z = rect.maxZ - 0.35;
-      const sW = new THREE.Mesh(new THREE.BoxGeometry(stripThickness, 0.02, d - 0.6), trimMat);
+      // Shorten W/E strips so they butt cleanly inside N/S strips without overlapping at corners
+      const sW = new THREE.Mesh(new THREE.BoxGeometry(stripThickness, 0.02, Math.max(0.5, d - 0.88)), trimMat);
       sW.position.set(rect.minX + 0.35, stripY, cz);
       const sE = sW.clone();
       sE.position.x = rect.maxX - 0.35;
@@ -244,7 +248,14 @@ export function buildStationWorld(scene: THREE.Scene, maxAniso: number, isSoftwa
   const topBeamGeo = new THREE.BoxGeometry(2.0, 0.7, WALL_THICK);
   const glassGeo = new THREE.BoxGeometry(2.0, 2.45, 0.08);
   const mullionGeo = new THREE.BoxGeometry(0.14, 2.5, 0.24);
-  const cornerPillarGeo = new THREE.BoxGeometry(WALL_THICK, WALL_HEIGHT, WALL_THICK);
+  const cornerPillarGeo = new THREE.CylinderGeometry(WALL_THICK * 0.62, WALL_THICK * 0.68, WALL_HEIGHT, 8);
+  const cornerRingGeo = new THREE.CylinderGeometry(WALL_THICK * 0.66, WALL_THICK * 0.66, 0.12, 8);
+  const cornerRingMat = new THREE.MeshStandardMaterial({
+    color: 0x38bdf8,
+    emissive: 0x0284c7,
+    emissiveIntensity: 0.75,
+    roughness: 0.3,
+  });
 
   WALL_SEGMENTS.forEach((seg) => {
     const isHoriz = seg.side === 'north' || seg.side === 'south';
@@ -305,13 +316,19 @@ export function buildStationWorld(scene: THREE.Scene, maxAniso: number, isSoftwa
     );
   });
 
-  // Render flush exterior 90-degree corner pillars matching WALL_COLLIDERS
+  // Render chamfered exterior octagonal corner bulkheads matching WALL_COLLIDERS
   WALL_COLLIDERS.forEach((wc) => {
     if (!wc.id.startsWith('wall_corner_')) return;
+    const cx = (wc.minX + wc.maxX) / 2;
+    const cz = (wc.minZ + wc.maxZ) / 2;
     const corner = new THREE.Mesh(cornerPillarGeo, frameMat);
-    corner.position.set((wc.minX + wc.maxX) / 2, WALL_HEIGHT / 2, (wc.minZ + wc.maxZ) / 2);
+    corner.position.set(cx, WALL_HEIGHT / 2, cz);
+    corner.rotation.y = Math.PI / 8;
     corner.receiveShadow = !isSoftwareGl;
-    stationGroup.add(corner);
+    const collar = new THREE.Mesh(cornerRingGeo, cornerRingMat);
+    collar.position.set(cx, 1.35, cz);
+    collar.rotation.y = Math.PI / 8;
+    stationGroup.add(corner, collar);
     wallBoxes.push(
       new THREE.Box3(
         new THREE.Vector3(wc.minX, 0, wc.minZ),
@@ -501,13 +518,48 @@ export function buildStationWorld(scene: THREE.Scene, maxAniso: number, isSoftwa
     g.add(ringGlow);
 
     if (kind === 'earth') {
-      // Emergency Meeting Button + Global Network Globe
+      // Emergency Meeting Button + Global Network Emergency Ring Banner
       const btn = new THREE.Mesh(
         new THREE.CylinderGeometry(0.32, 0.36, 0.16, 16),
         new THREE.MeshStandardMaterial({ color: 0xef4444, emissive: 0xdc2626, emissiveIntensity: 1.0 })
       );
       btn.position.set(0, 0.94, 0.55);
       g.add(btn);
+
+      // Floating "GLOBAL NETWORK EMERGENCY" holographic display above central globe
+      const bannerCanvas = document.createElement('canvas');
+      bannerCanvas.width = 512;
+      bannerCanvas.height = 112;
+      const bctx = bannerCanvas.getContext('2d');
+      if (bctx) {
+        bctx.fillStyle = 'rgba(69, 10, 10, 0.88)';
+        bctx.strokeStyle = '#fb7185';
+        bctx.lineWidth = 4;
+        bctx.beginPath();
+        bctx.roundRect(6, 6, 500, 100, 16);
+        bctx.fill();
+        bctx.stroke();
+        bctx.textAlign = 'center';
+        bctx.fillStyle = '#fecdd3';
+        bctx.font = '800 30px system-ui, -apple-system, sans-serif';
+        bctx.fillText('GLOBAL NETWORK EMERGENCY', 256, 46);
+        bctx.fillStyle = '#bae6fd';
+        bctx.font = '600 21px system-ui, -apple-system, sans-serif';
+        bctx.fillText('KONEKSI DUNIA TERPUTUS • PULIHKAN 5 CHAPTER', 256, 82);
+      }
+      const bannerTex = new THREE.CanvasTexture(bannerCanvas);
+      bannerTex.colorSpace = THREE.SRGBColorSpace;
+      const bannerMat = new THREE.MeshBasicMaterial({
+        map: bannerTex,
+        transparent: true,
+        opacity: 0.94,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      const banner = new THREE.Mesh(new THREE.PlaneGeometry(2.35, 0.52), bannerMat);
+      banner.position.set(0, 2.95, 0);
+      g.add(banner);
+      animatedSpinners.push({ obj: banner, speedY: 0.4, floatAmp: 0.06, baseY: 2.95 });
     }
 
     if (kind === 'earth' || kind === 'obs') {
@@ -578,8 +630,8 @@ export function buildStationWorld(scene: THREE.Scene, maxAniso: number, isSoftwa
   addHoloTable(0, -36, 0xf43f5e, 'balance');
   addHoloTable(0, -55, 0xeab308, 'obs');
 
-  // 5. Populate Detailed Furniture, Interactive Theory Books, Room Culling Groups & Physical Floor Vents
-  const { vents, theoryBooks, roomGroups } = populateStationFurniture(stationGroup, isSoftwareGl);
+  // 5. Populate Detailed Furniture, Interactive Theory Books, Room Culling Groups, Physical Floor Vents & Secret TV
+  const { vents, theoryBooks, roomGroups, secretTv } = populateStationFurniture(stationGroup, isSoftwareGl);
 
   // 2 Dynamic Local Room PointLights (replaces 11 simultaneous per-room PointLights for 60fps shading)
   const localLightA = new THREE.PointLight(0x38bdf8, 2.5, 24, 1.3);
@@ -681,6 +733,7 @@ export function buildStationWorld(scene: THREE.Scene, maxAniso: number, isSoftwa
     ...terminals.map((t) => t.hitMesh),
     ...theoryBooks.map((b) => b.hitMesh),
     ...vents.map((v) => v.hitMesh),
+    secretTv.hitMesh,
   ];
 
   return {
@@ -689,6 +742,7 @@ export function buildStationWorld(scene: THREE.Scene, maxAniso: number, isSoftwa
     vents,
     theoryBooks,
     terminals,
+    secretTv,
     interactHitMeshes,
     wallBoxes,
     animatedSpinners,

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Award, Home, Package, RotateCcw, Sparkles, UserCheck, BarChart3 } from 'lucide-react';
+import { Award, Clock, Home, Package, RefreshCw, RotateCcw, Trophy, UserCheck, BarChart3 } from 'lucide-react';
 import { soundEngine } from '../audio/soundEngine';
 import { getBadgeFromScore, INVENTORY_ITEMS, MISSION_META } from '../data/gameData';
 import { MissionId, SaveState } from '../types/game';
@@ -9,14 +9,26 @@ interface EndingScreenProps {
   saveState: SaveState;
   onOpenInventory: () => void;
   onOpenCustomize: () => void;
+  onOpenRanking?: () => void;
+  onReplayChapters?: () => void;
   onPlayAgain: () => void;
   onBackHome: () => void;
+}
+
+function formatBestTime(ms: number | null | undefined): string {
+  if (!ms || !Number.isFinite(ms) || ms <= 0) return '--:--';
+  const totalSec = Math.floor(ms / 1000);
+  const mins = Math.floor(totalSec / 60);
+  const secs = totalSec % 60;
+  return `${mins}m ${String(secs).padStart(2, '0')}d`;
 }
 
 export const EndingScreen: React.FC<EndingScreenProps> = ({
   saveState,
   onOpenInventory,
   onOpenCustomize,
+  onOpenRanking,
+  onReplayChapters,
   onPlayAgain,
   onBackHome,
 }) => {
@@ -56,6 +68,15 @@ export const EndingScreen: React.FC<EndingScreenProps> = ({
               {badge.rank}
             </h1>
             <p className="text-xs md:text-sm text-slate-300 max-w-xl mx-auto">{badge.summary}</p>
+            {saveState.bestCompletionMs ? (
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/15 border border-amber-400/40 text-xs font-semibold text-amber-200">
+                <Clock className="w-3.5 h-3.5 text-amber-400" />
+                Catatan Waktu Tamat Terbaik:{' '}
+                <span className="font-mono-num font-bold text-amber-300">
+                  {formatBestTime(saveState.bestCompletionMs)}
+                </span>
+              </div>
+            ) : null}
             <blockquote className="mt-3 px-4 py-2.5 rounded-xl bg-slate-900/90 border border-sky-500/30 text-xs md:text-sm font-display font-semibold text-sky-200 tracking-wide">
               "GLOBALIZATION IS NOT JUST ABOUT A CONNECTED WORLD, BUT HOW WE CHOOSE TO LIVE IN IT."
             </blockquote>
@@ -120,7 +141,7 @@ export const EndingScreen: React.FC<EndingScreenProps> = ({
           )}
 
           {/* Action Menu */}
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 pt-1">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2.5 pt-1">
             <button
               onClick={() => {
                 soundEngine.playClick();
@@ -128,7 +149,7 @@ export const EndingScreen: React.FC<EndingScreenProps> = ({
               }}
               className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 text-xs font-semibold cursor-pointer"
             >
-              <BarChart3 className="w-4 h-4 text-sky-400" />
+              <BarChart3 className="w-4 h-4 text-sky-400 shrink-0" />
               VIEW RESULTS
             </button>
             <button
@@ -138,7 +159,7 @@ export const EndingScreen: React.FC<EndingScreenProps> = ({
               }}
               className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 text-xs font-semibold cursor-pointer"
             >
-              <Package className="w-4 h-4 text-emerald-400" />
+              <Package className="w-4 h-4 text-emerald-400 shrink-0" />
               VIEW INVENTORY
             </button>
             <button
@@ -148,9 +169,33 @@ export const EndingScreen: React.FC<EndingScreenProps> = ({
               }}
               className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 text-xs font-semibold cursor-pointer"
             >
-              <UserCheck className="w-4 h-4 text-purple-400" />
+              <UserCheck className="w-4 h-4 text-purple-400 shrink-0" />
               CUSTOMIZATION
             </button>
+            {onOpenRanking && (
+              <button
+                onClick={() => {
+                  soundEngine.playClick();
+                  onOpenRanking();
+                }}
+                className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/50 text-amber-200 text-xs font-display font-bold cursor-pointer"
+              >
+                <Trophy className="w-4 h-4 text-amber-400 shrink-0" />
+                RANKING
+              </button>
+            )}
+            {onReplayChapters && (
+              <button
+                onClick={() => {
+                  soundEngine.playClick();
+                  onReplayChapters();
+                }}
+                className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-violet-500/20 hover:bg-violet-500/30 border border-violet-400/50 text-violet-200 text-xs font-display font-bold cursor-pointer"
+              >
+                <RefreshCw className="w-4 h-4 text-violet-300 shrink-0" />
+                ULANGI CHAPTER
+              </button>
+            )}
             <button
               onClick={() => {
                 soundEngine.playClick();
@@ -158,7 +203,7 @@ export const EndingScreen: React.FC<EndingScreenProps> = ({
               }}
               className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-display font-bold cursor-pointer"
             >
-              <RotateCcw className="w-4 h-4" />
+              <RotateCcw className="w-4 h-4 shrink-0" />
               PLAY AGAIN
             </button>
             <button
@@ -168,7 +213,7 @@ export const EndingScreen: React.FC<EndingScreenProps> = ({
               }}
               className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 text-xs font-display font-bold cursor-pointer col-span-2 sm:col-span-1"
             >
-              <Home className="w-4 h-4" />
+              <Home className="w-4 h-4 shrink-0" />
               BACK TO HOME
             </button>
           </div>

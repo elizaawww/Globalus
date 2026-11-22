@@ -25,6 +25,9 @@ import {
   Music,
   Headphones,
   Pause,
+  RefreshCw,
+  Search,
+  Trophy,
   Wifi,
   WifiOff,
 } from 'lucide-react';
@@ -40,6 +43,9 @@ interface HomeScreenProps {
   onPlayGame: () => void;
   onOpenMultiplayer: () => void;
   onOpenTutorial?: () => void;
+  onOpenRanking?: () => void;
+  onOpenMusic?: () => void;
+  onReplayChapters?: () => void;
   onUpdateSettings: (next: GameSettings) => void;
   onResetProgress: () => void;
 }
@@ -95,6 +101,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onPlayGame,
   onOpenMultiplayer,
   onOpenTutorial,
+  onOpenRanking,
+  onOpenMusic,
+  onReplayChapters,
   onUpdateSettings,
   onResetProgress,
 }) => {
@@ -199,6 +208,57 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                   {isOnline ? 'Room & Impostor' : 'Butuh Internet'}
                 </span>
               </button>
+
+              {onReplayChapters &&
+                (saveState.completedChapters.includes(5) || saveState.endingSeen) && (
+                  <button
+                    onMouseEnter={btnHover}
+                    onClick={() => {
+                      btnClick();
+                      onReplayChapters();
+                    }}
+                    className="flex items-center justify-between px-5 py-2.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/50 text-amber-200 font-display font-bold text-xs sm:text-sm transition-all cursor-pointer"
+                  >
+                    <span className="flex items-center gap-2.5">
+                      <RefreshCw className="w-4 h-4 text-amber-300" />
+                      ULANGI CHAPTER (CHAPTER 1–5)
+                    </span>
+                    <span className="text-[10px] font-sans font-semibold text-amber-300">
+                      Koleksi Hadiah
+                    </span>
+                  </button>
+                )}
+
+              {(onOpenRanking || onOpenMusic) && (
+                <div className="grid grid-cols-2 gap-2.5">
+                  {onOpenRanking && (
+                    <button
+                      onMouseEnter={btnHover}
+                      onClick={() => {
+                        btnClick();
+                        onOpenRanking();
+                      }}
+                      className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-[#0d1733]/90 hover:bg-[#14234a] border border-amber-400/40 hover:border-amber-300 text-amber-200 font-semibold text-xs sm:text-sm transition-all cursor-pointer"
+                    >
+                      <Trophy className="w-4 h-4 text-amber-400 shrink-0" />
+                      RANKING GLOBAL
+                    </button>
+                  )}
+                  {onOpenMusic && (
+                    <button
+                      onMouseEnter={btnHover}
+                      onClick={() => {
+                        btnClick();
+                        onOpenMusic();
+                      }}
+                      className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-[#0d1733]/90 hover:bg-[#14234a] border border-violet-400/40 hover:border-violet-300 text-violet-200 font-semibold text-xs sm:text-sm transition-all cursor-pointer"
+                    >
+                      <Music className="w-4 h-4 text-violet-400 shrink-0" />
+                      MUSIK &amp; LAGU
+                    </button>
+                  )}
+                </div>
+              )}
 
               <button
                 onMouseEnter={btnHover}
@@ -578,6 +638,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                       onUpdateSettings({
                         ...saveState.settings,
                         musicTrack: e.target.value as GameSettings['musicTrack'],
+                        selectedExternalTrack: null,
                         musicPaused: false,
                         musicMuted: false,
                       });
@@ -590,6 +651,24 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                       </option>
                     ))}
                   </select>
+                  {saveState.settings.selectedExternalTrack && (
+                    <p className="text-[11px] text-sky-300 truncate">
+                      Aktif: {saveState.settings.selectedExternalTrack.title} —{' '}
+                      {saveState.settings.selectedExternalTrack.artist}
+                    </p>
+                  )}
+                  {onOpenMusic && (
+                    <button
+                      onClick={() => {
+                        btnClick();
+                        onOpenMusic();
+                      }}
+                      className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-violet-500/20 hover:bg-violet-500/30 border border-violet-400/40 text-violet-200 text-xs font-bold cursor-pointer"
+                    >
+                      <Search className="w-3.5 h-3.5" />
+                      Cari Lagu Online &amp; Pemutar Lengkap
+                    </button>
+                  )}
                 </div>
 
                 <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-4 space-y-2.5">

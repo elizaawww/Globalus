@@ -1,4 +1,4 @@
-import { GameSettings, MusicTrackId } from '../types/game';
+import { GameSettings, MusicSearchResult, MusicTrackId } from '../types/game';
 
 export type MusicMode = 'none' | 'home' | 'gameplay' | 'cutscene' | 'discussion';
 
@@ -13,9 +13,9 @@ export interface MusicTrackDef {
 export const MUSIC_TRACKS: MusicTrackDef[] = [
   {
     id: 'cosmic_drift',
-    title: 'Cosmic Drift',
-    genre: 'Space Ambient',
-    stepSec: 0.56,
+    title: 'Station Hull Ambience',
+    genre: 'Space Ambient · Calm Hum',
+    stepSec: 1.15,
     licenseNote: 'Audio Bebas Royalti · Offline',
   },
   {
@@ -73,6 +73,9 @@ class SoundEngine {
   private musicMuted = false;
   private musicPaused = false;
   private currentTrack: MusicTrackId = 'cosmic_drift';
+  private selectedExternalTrack: MusicSearchResult | null = null;
+  private externalAudio: HTMLAudioElement | null = null;
+  private externalAudioUrl: string | null = null;
   private cutsceneDuckActive = false;
   private voiceDuckActive = false;
   private currentMode: MusicMode = 'none';
@@ -96,6 +99,20 @@ class SoundEngine {
     return true;
   }
 
+  private getDuckMultiplier(): number {
+    let duck = 1.0;
+    if (this.voiceDuckActive) {
+      duck = Math.min(duck, 0.2);
+    }
+    if (this.cutsceneDuckActive) {
+      duck = Math.min(duck, 0.32);
+    }
+    if (this.nowMs() < this.musicDuckUntil) {
+      duck = Math.min(duck, 0.3);
+    }
+    return duck;
+  }
+
   private duckMusic(durationMs: number) {
     this.musicDuckUntil = Math.max(this.musicDuckUntil, this.nowMs() + durationMs);
     this.applyDuckLevel();
@@ -114,19 +131,31 @@ class SoundEngine {
   }
 
   private applyDuckLevel() {
-    if (!this.ctx || !this.musicDuckGain) return;
-    const now = this.ctx.currentTime;
-    let duck = 1.0;
-    if (this.voiceDuckActive) {
-      duck = Math.min(duck, 0.2);
+    const duck = this.getDuckMultiplier();
+    if (this.ctx && this.musicDuckGain) {
+      this.musicDuckGain.gain.setTargetAtTime(duck, this.ctx.currentTime, 0.14);
     }
-    if (this.cutsceneDuckActive) {
-      duck = Math.min(duck, 0.32);
+    this.syncExternalAudioVolume();
+  }
+
+  private syncExternalAudioVolume() {
+    if (!this.externalAudio) return;
+    const shouldPlay =
+      Boolean(this.selectedExternalTrack?.previewUrl) &&
+      this.currentMode !== 'none' &&
+      !this.muted &&
+      !this.musicMuted &&
+      !this.musicPaused &&
+      this.musicVolume > 0.01;
+    const targetVol = shouldPlay
+      ? Math.max(0, Math.min(1, this.musicVolume * 0.65 * this.getDuckMultiplier()))
+      : 0;
+    this.externalAudio.volume = targetVol;
+    if (!shouldPlay) {
+      if (!this.externalAudio.paused) this.externalAudio.pause();
+    } else if (this.externalAudio.paused && this.externalAudioUrl) {
+      this.externalAudio.play().catch(() => {});
     }
-    if (this.nowMs() < this.musicDuckUntil) {
-      duck = Math.min(duck, 0.3);
-    }
-    this.musicDuckGain.gain.setTargetAtTime(duck, now, 0.14);
   }
 
   private ensureContext(): AudioContext | null {
@@ -143,11 +172,11 @@ class SoundEngine {
 
       this.musicFilter = this.ctx.createBiquadFilter();
       this.musicFilter.type = 'lowpass';
-      this.musicFilter.frequency.value = 2400;
-      this.musicFilter.Q.value = 0.5;
+      this.musicFilter.frequency.value = 1250;
+      this.musicFilter.Q.value = 0.4;
 
       this.musicCompressor = this.ctx.createDynamicsCompressor();
-      this.musicCompressor.threshold.value = -16;
+      this.musicCompressor.threshold.value = -18;
       this.musicCompressor.knee.value = 18;
       this.musicCompressor.ratio.value = 6;
       this.musicCompressor.attack.value = 0.008;
@@ -172,21 +201,46 @@ class SoundEngine {
 
   public unlock() {
     this.ensureContext();
+    this.syncExternalAudioVolume();
   }
 
   public updateSettings(
-    settings: Pick<GameSettings, 'musicVolume' | 'sfxVolume' | 'muted' | 'musicTrack' | 'musicPaused' | 'musicMuted'>
+    settings: Pick<
+      GameSettings,
+      'musicVolume' | 'sfxVolume' | 'muted' | 'musicTrack' | 'musicPaused' | 'musicMuted' | 'selectedExternalTrack'
+    >
   ) {
     const prevTrack = this.currentTrack;
     const prevPaused = this.musicPaused;
+    const prevExtUrl = this.externalAudioUrl;
     this.musicVolume = settings.musicVolume;
     this.sfxVolume = settings.sfxVolume;
     this.muted = settings.muted;
     this.musicMuted = Boolean(settings.musicMuted);
     this.musicPaused = Boolean(settings.musicPaused);
     this.currentTrack = normalizeMusicTrackId(settings.musicTrack);
+    this.selectedExternalTrack = settings.selectedExternalTrack ?? null;
+
+    const nextExtUrl = this.selectedExternalTrack?.previewUrl || null;
+    if (nextExtUrl !== prevExtUrl) {
+      this.externalAudioUrl = nextExtUrl;
+      if (this.externalAudio) {
+        this.externalAudio.pause();
+        this.externalAudio.src = '';
+      }
+      if (nextExtUrl && typeof Audio !== 'undefined') {
+        if (!this.externalAudio) {
+          this.externalAudio = new Audio();
+          this.externalAudio.loop = true;
+          this.externalAudio.crossOrigin = 'anonymous';
+        }
+        this.externalAudio.src = nextExtUrl;
+      }
+    }
+
     this.applyVolumes();
-    if (prevTrack !== this.currentTrack || prevPaused !== this.musicPaused) {
+    this.syncExternalAudioVolume();
+    if (prevTrack !== this.currentTrack || prevPaused !== this.musicPaused || nextExtUrl !== prevExtUrl) {
       const m = this.currentMode;
       this.currentMode = 'none';
       this.setMusicMode(m);
@@ -197,7 +251,9 @@ class SoundEngine {
     if (!this.ctx || !this.masterGain || !this.musicGain || !this.sfxGain) return;
     const now = this.ctx.currentTime;
     this.masterGain.gain.setTargetAtTime(this.muted ? 0 : 1, now, 0.04);
-    const effectiveMusic = this.muted || this.musicMuted || this.musicPaused ? 0 : this.musicVolume * 0.28;
+    const hasExt = Boolean(this.selectedExternalTrack?.previewUrl);
+    const effectiveMusic =
+      this.muted || this.musicMuted || this.musicPaused || hasExt ? 0 : this.musicVolume * 0.19;
     this.musicGain.gain.setTargetAtTime(effectiveMusic, now, 0.09);
     this.sfxGain.gain.setTargetAtTime(this.sfxVolume * 0.6, now, 0.04);
   }
@@ -491,112 +547,83 @@ class SoundEngine {
 
   private scheduleMusicStep(mode: MusicMode, time: number, stepIdx: number) {
     if (this.muted || this.musicMuted || this.musicPaused || this.musicVolume <= 0.01) return;
+    if (this.selectedExternalTrack?.previewUrl) return;
     if (this.nowMs() < this.musicDuckUntil) return;
 
     if (mode === 'home') {
-      const chords = [
-        [130.81, 196.0, 246.94, 293.66],
-        [110.0, 164.81, 220.0, 261.63],
-        [174.61, 220.0, 261.63, 329.63],
-        [146.83, 220.0, 261.63, 329.63],
-      ];
-      const chord = chords[stepIdx % chords.length];
-      chord.forEach((f, idx) => {
-        this.scheduleToneAt(f, 1.1, 'sine', 0.07, 'music', time + idx * 0.055);
-      });
+      // Soft space-station hull drone & subtle telemetry tone (non-intrusive)
+      const roots = [65.41, 73.42, 65.41, 61.74];
+      const f = roots[stepIdx % roots.length];
+      this.scheduleToneAt(f, 1.8, 'sine', 0.09, 'music', time);
+      this.scheduleToneAt(f * 2, 1.6, 'sine', 0.04, 'music', time + 0.08);
+      if (stepIdx % 2 === 1) {
+        this.scheduleToneAt(f * 3, 0.85, 'sine', 0.024, 'music', time + 0.22);
+      }
       return;
     }
 
     if (mode === 'discussion') {
-      const pulseBass = [110.0, 110.0, 103.83, 110.0, 116.54, 110.0, 103.83, 98.0];
-      const tensionHigh = [329.63, 0, 311.13, 0, 349.23, 0, 466.16, 0];
+      const pulseBass = [98.0, 98.0, 92.5, 98.0];
       const idx = stepIdx % pulseBass.length;
-      this.scheduleToneAt(pulseBass[idx] * 0.5, 0.2, 'triangle', 0.11, 'music', time);
-      const high = tensionHigh[idx];
-      if (high > 0) {
-        this.scheduleToneAt(high, 0.38, 'sine', 0.055, 'music', time + 0.04);
+      this.scheduleToneAt(pulseBass[idx] * 0.65, 0.28, 'sine', 0.08, 'music', time);
+      if (stepIdx % 2 === 0) {
+        this.scheduleToneAt(293.66, 0.35, 'sine', 0.028, 'music', time + 0.05);
       }
       return;
     }
 
     if (mode === 'cutscene') {
       const cinematic = [
+        [82.41, 164.81, 246.94],
+        [98.0, 196.0, 293.66],
         [110.0, 220.0, 329.63],
-        [130.81, 261.63, 392.0],
-        [146.83, 293.66, 440.0],
-        [123.47, 246.94, 369.99],
+        [92.5, 185.0, 277.18],
       ];
       const c = cinematic[stepIdx % cinematic.length];
       c.forEach((f, idx) => {
-        this.scheduleToneAt(f, 0.92, 'sine', 0.065, 'music', time + idx * 0.04);
+        this.scheduleToneAt(f, 1.25, 'sine', 0.055, 'music', time + idx * 0.06);
       });
       return;
     }
 
-    // Gameplay tracks — clean filtered oscillators with zero static/clipping
     const track = this.currentTrack;
     if (track === 'nusantara_gamelan') {
-      // Indonesia · Pelog pentatonic warm chime + steady gong root
-      const pelogLead = [293.66, 329.63, 440.0, 493.88, 587.33, 493.88, 440.0, 329.63];
-      const gongBass = [146.83, 0, 146.83, 0, 110.0, 0, 130.81, 0];
+      const pelogLead = [293.66, 329.63, 440.0, 493.88, 440.0, 329.63];
       const idx = stepIdx % pelogLead.length;
-      if (gongBass[idx] > 0) {
-        this.scheduleToneAt(gongBass[idx] * 0.5, 0.72, 'sine', 0.12, 'music', time);
-      }
-      this.scheduleToneAt(pelogLead[idx], 0.38, 'sine', 0.085, 'music', time);
       if (idx % 2 === 0) {
-        this.scheduleToneAt(pelogLead[idx] * 2, 0.24, 'triangle', 0.032, 'music', time + 0.04);
+        this.scheduleToneAt(73.42, 0.9, 'sine', 0.09, 'music', time);
       }
+      this.scheduleToneAt(pelogLead[idx], 0.45, 'sine', 0.05, 'music', time);
     } else if (track === 'seoul_neon') {
-      // K-Pop Vibe · Bright upbeat synth-pop major-7th groove
-      const bass = [87.31, 87.31, 98.0, 110.0, 130.81, 130.81, 98.0, 87.31];
-      const lead = [349.23, 440.0, 523.25, 659.25, 587.33, 523.25, 493.88, 440.0];
+      const bass = [87.31, 98.0, 110.0, 98.0];
+      const lead = [349.23, 440.0, 523.25, 440.0];
       const idx = stepIdx % bass.length;
-      this.scheduleToneAt(bass[idx], 0.28, 'triangle', 0.1, 'music', time);
-      this.scheduleToneAt(lead[idx], 0.25, 'sine', 0.075, 'music', time + 0.01);
-      if (stepIdx % 2 === 1) {
-        this.scheduleToneAt(lead[(idx + 2) % lead.length], 0.19, 'triangle', 0.04, 'music', time + 0.09);
-      }
+      this.scheduleToneAt(bass[idx], 0.32, 'sine', 0.075, 'music', time);
+      this.scheduleToneAt(lead[idx], 0.3, 'sine', 0.045, 'music', time + 0.02);
     } else if (track === 'western_sunset') {
-      // Western Vibe · Mellow warm Rhodes 7th chords + chill bell motif
       const chords = [
-        [174.61, 220.0, 261.63, 329.63], // Fmaj7
-        [164.81, 196.0, 246.94, 293.66], // Em7
-        [146.83, 174.61, 220.0, 261.63], // Dm7
-        [130.81, 164.81, 196.0, 246.94], // Cmaj7
+        [174.61, 220.0, 261.63],
+        [164.81, 196.0, 246.94],
+        [146.83, 174.61, 220.0],
+        [130.81, 164.81, 196.0],
       ];
-      const step = stepIdx % 8;
-      if (step % 2 === 0) {
-        const c = chords[(stepIdx >> 1) % chords.length];
-        c.forEach((f, i) => this.scheduleToneAt(f, 0.85, 'sine', 0.055, 'music', time + i * 0.03));
-      } else {
-        const bell = [523.25, 493.88, 440.0, 392.0];
-        this.scheduleToneAt(bell[step % bell.length], 0.34, 'triangle', 0.042, 'music', time + 0.04);
-      }
+      const c = chords[stepIdx % chords.length];
+      c.forEach((f, i) => this.scheduleToneAt(f, 0.95, 'sine', 0.045, 'music', time + i * 0.04));
     } else if (track === 'tension_protocol') {
-      // Electronic · Clean Starlight Pulse
-      const pulse = [110.0, 110.0, 103.83, 110.0, 130.81, 110.0, 98.0, 103.83];
+      const pulse = [82.41, 82.41, 77.78, 82.41];
       const idx = stepIdx % pulse.length;
-      this.scheduleToneAt(pulse[idx] * 0.5, 0.24, 'triangle', 0.11, 'music', time);
+      this.scheduleToneAt(pulse[idx], 0.32, 'sine', 0.08, 'music', time);
       if (stepIdx % 2 === 1) {
-        this.scheduleToneAt(pulse[idx] * 2, 0.22, 'sine', 0.05, 'music', time + 0.03);
-      }
-      if (stepIdx % 4 === 2) {
-        this.scheduleToneAt(pulse[idx] * 3, 0.32, 'sine', 0.042, 'music', time + 0.06);
+        this.scheduleToneAt(pulse[idx] * 3, 0.25, 'sine', 0.028, 'music', time + 0.04);
       }
     } else {
-      // Cosmic Drift · Space Ambient warm pads & crystal shimmer
-      const roots = [130.81, 130.81, 116.54, 116.54, 98.0, 98.0, 103.83, 123.47];
-      const shimmer = [261.63, 311.13, 392.0, 466.16, 392.0, 311.13, 349.23, 293.66];
-      const idx = stepIdx % roots.length;
-      if (stepIdx % 4 === 0) {
-        this.scheduleToneAt(roots[idx] * 0.5, 1.8, 'sine', 0.11, 'music', time);
-        this.scheduleToneAt(roots[idx] * 1.5, 1.4, 'sine', 0.05, 'music', time + 0.06);
-      }
-      if (stepIdx % 2 === 0) {
-        this.scheduleToneAt(shimmer[idx], 0.48, 'sine', 0.068, 'music', time + 0.03);
-      } else if (stepIdx % 8 === 3 || stepIdx % 8 === 7) {
-        this.scheduleToneAt(shimmer[idx] * 2, 0.36, 'triangle', 0.036, 'music', time + 0.08);
+      // Among Us-style calm space-station hull drone & deep harmonic hum
+      const roots = [65.41, 65.41, 58.27, 61.74];
+      const f = roots[stepIdx % roots.length];
+      this.scheduleToneAt(f, 2.1, 'sine', 0.095, 'music', time);
+      this.scheduleToneAt(f * 1.5, 1.9, 'sine', 0.042, 'music', time + 0.08);
+      if (stepIdx % 3 === 1) {
+        this.scheduleToneAt(f * 4, 0.95, 'sine', 0.024, 'music', time + 0.25);
       }
     }
   }
@@ -610,17 +637,18 @@ class SoundEngine {
     }
     this.stepIndex = 0;
     this.setCutsceneDucking(mode === 'cutscene');
-    if (mode === 'none' || this.musicPaused) return;
+    this.syncExternalAudioVolume();
+    if (mode === 'none' || this.musicPaused || this.selectedExternalTrack?.previewUrl) return;
 
     const trackDef = MUSIC_TRACKS.find((t) => t.id === this.currentTrack) || MUSIC_TRACKS[0];
     const stepSec =
       mode === 'home'
-        ? 0.95
+        ? 1.15
         : mode === 'gameplay'
           ? trackDef.stepSec
           : mode === 'discussion'
-            ? 0.38
-            : 0.85;
+            ? 0.44
+            : 0.95;
 
     const scheduleAheadSec = 0.16;
     const lookaheadMs = 35;

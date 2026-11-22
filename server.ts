@@ -1,4 +1,5 @@
 import express from 'express';
+import fs from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,6 +13,9 @@ import type {
   MeetingState,
   MultiplayerPhase,
   MultiplayerRole,
+  MusicSearchResult,
+  RankingEntry,
+  RankingsResponse,
   RemotePlayerPublic,
   RoomSnapshot,
   StasisPodState,
@@ -20,15 +24,23 @@ import type {
 
 const VALID_EMOTES = new Set<EmoteId>([
   'wave',
+  'bow',
+  'salute',
   'clap',
   'thumbs_up',
   'heart',
   'laugh',
   'sad',
   'surprised',
-  'dance',
-  'celebrate',
+  'shrug',
   'think',
+  'celebrate',
+  'cheer',
+  'flex',
+  'spin',
+  'dance',
+  'kpop_groove',
+  'star_hop',
 ]);
 
 const __filename = fileURLToPath(import.meta.url);
@@ -443,13 +455,253 @@ function removePlayerFromRoom(room: ServerRoom, playerId: string) {
   }
 }
 
+const RANKINGS_FILE = path.resolve(__dirname, 'data', 'rankings.json');
+
+const NON_DEFAULT_REWARDS = new Set<string>([
+  'comm_headset',
+  'futuristic_blue_hat',
+  'chip_necklace',
+  'tech_backpack',
+  'modern_batik_cape',
+  'batik_flower',
+  'planet_necklace',
+  'cultural_backpack',
+  'fuzzy_signal_ears',
+  'fuzzy_holo_visor',
+  'fuzzy_transceiver_pack',
+  'fuzzy_fiber_necklace',
+  'bob_cargo_goggles',
+  'bob_exo_helm',
+  'bob_hydraulic_frame',
+  'bob_trade_medallion',
+  'golden_crown',
+  'nusantara_flower',
+  'batik_necklace',
+  'royal_batik_cape',
+  'medalion_hyperglobalis',
+  'medalion_transformasionalis',
+  'medalion_teknologi',
+  'medalion_ekonomi',
+  'medalion_skeptis',
+]);
+
+async function loadRankingStore(): Promise<RankingEntry[]> {
+  try {
+    const raw = await fs.readFile(RANKINGS_FILE, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((e): e is RankingEntry => Boolean(e && typeof e.playerId === 'string' && typeof e.playerName === 'string'));
+  } catch {
+    return [];
+  }
+}
+
+async function saveRankingStore(entries: RankingEntry[]): Promise<void> {
+  await fs.mkdir(path.dirname(RANKINGS_FILE), { recursive: true });
+  await fs.writeFile(RANKINGS_FILE, JSON.stringify(entries, null, 2), 'utf8');
+}
+
+function buildRankingsResponse(entries: RankingEntry[]): RankingsResponse {
+  const fastest = entries
+    .filter((e) => e.completedChapters >= 5 && typeof e.bestCompletionMs === 'number' && Number.isFinite(e.bestCompletionMs))
+    .sort((a, b) => {
+      const ta = a.bestCompletionMs ?? Number.MAX_SAFE_INTEGER;
+      const tb = b.bestCompletionMs ?? Number.MAX_SAFE_INTEGER;
+      if (ta !== tb) return ta - tb;
+      if (b.itemCount !== a.itemCount) return b.itemCount - a.itemCount;
+      if (b.emoteCount !== a.emoteCount) return b.emoteCount - a.emoteCount;
+      return a.updatedAt - b.updatedAt;
+    })
+    .slice(0, 10);
+
+  const mostItems = [...entries]
+    .sort((a, b) => {
+      if (b.itemCount !== a.itemCount) return b.itemCount - a.itemCount;
+      if (b.emoteCount !== a.emoteCount) return b.emoteCount - a.emoteCount;
+      const ta = a.bestCompletionMs ?? Number.MAX_SAFE_INTEGER;
+      const tb = b.bestCompletionMs ?? Number.MAX_SAFE_INTEGER;
+      if (ta !== tb) return ta - tb;
+      return a.updatedAt - b.updatedAt;
+    })
+    .slice(0, 10);
+
+  const mostEmotes = [...entries]
+    .sort((a, b) => {
+      if (b.emoteCount !== a.emoteCount) return b.emoteCount - a.emoteCount;
+      if (b.itemCount !== a.itemCount) return b.itemCount - a.itemCount;
+      const ta = a.bestCompletionMs ?? Number.MAX_SAFE_INTEGER;
+      const tb = b.bestCompletionMs ?? Number.MAX_SAFE_INTEGER;
+      if (ta !== tb) return ta - tb;
+      return a.updatedAt - b.updatedAt;
+    })
+    .slice(0, 10);
+
+  return {
+    available: true,
+    fastest,
+    mostItems,
+    mostEmotes,
+    updatedAt: Date.now(),
+  };
+}
+
 async function startServer() {
   const app = express();
+  app.use(express.json({ limit: '64kb' }));
   const server = http.createServer(app);
   const wss = new WebSocketServer({ server, path: '/ws' });
 
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true, rooms: rooms.size });
+  });
+
+  app.get('/api/rankings', async (_req, res) => {
+    try {
+      const entries = await loadRankingStore();
+      res.json(buildRankingsResponse(entries));
+    } catch {
+      res.status(500).json({
+        available: false,
+        fastest: [],
+        mostItems: [],
+        mostEmotes: [],
+        updatedAt: Date.now(),
+        error: 'Gagal memuat data peringkat global dari server.',
+      });
+    }
+  });
+
+  app.post('/api/rankings/submit', async (req, res) => {
+    try {
+      const body = req.body as Record<string, unknown> | undefined;
+      if (!body || typeof body !== 'object') {
+        res.status(400).json({ ok: false, error: 'Payload ranking tidak valid.' });
+        return;
+      }
+
+      const playerId = String(body.playerId || '').trim().slice(0, 64);
+      const playerName = String(body.playerName || '').trim().slice(0, 24);
+      if (!playerId || !playerName) {
+        res.status(400).json({ ok: false, error: 'playerId dan playerName wajib diisi.' });
+        return;
+      }
+
+      const rawItems = Array.isArray(body.unlockedItems) ? body.unlockedItems : [];
+      const uniqueItems = new Set<string>();
+      for (const item of rawItems) {
+        const s = String(item);
+        if (NON_DEFAULT_REWARDS.has(s)) uniqueItems.add(s);
+      }
+
+      const rawEmotes = Array.isArray(body.unlockedEmotes) ? body.unlockedEmotes : [];
+      const uniqueEmotes = new Set<EmoteId>();
+      for (const em of rawEmotes) {
+        const s = String(em) as EmoteId;
+        if (VALID_EMOTES.has(s)) uniqueEmotes.add(s);
+      }
+
+      const rawChapters = Number(body.completedChapters);
+      const completedChapters = Number.isFinite(rawChapters)
+        ? Math.max(0, Math.min(5, Math.floor(rawChapters)))
+        : 0;
+
+      const rawExp = Number(body.totalExp);
+      const totalExp = Number.isFinite(rawExp) ? Math.max(0, Math.min(100000, Math.floor(rawExp))) : 0;
+
+      const rawMs = body.bestCompletionMs;
+      const validMs =
+        typeof rawMs === 'number' && Number.isFinite(rawMs) && rawMs >= 15000 && rawMs <= 7200000
+          ? Math.round(rawMs)
+          : null;
+
+      const entries = await loadRankingStore();
+      const idx = entries.findIndex((e) => e.playerId === playerId);
+      const prev = idx >= 0 ? entries[idx] : null;
+
+      const mergedBestMs =
+        validMs !== null && prev?.bestCompletionMs != null
+          ? Math.min(validMs, prev.bestCompletionMs)
+          : (validMs ?? prev?.bestCompletionMs ?? null);
+
+      const nextEntry: RankingEntry = {
+        playerId,
+        playerName,
+        avatarColor: typeof body.avatarColor === 'string' ? body.avatarColor.slice(0, 24) : 'biru',
+        bestCompletionMs: mergedBestMs,
+        itemCount: Math.max(uniqueItems.size, prev?.itemCount ?? 0),
+        emoteCount: Math.max(uniqueEmotes.size, prev?.emoteCount ?? 0),
+        completedChapters: Math.max(completedChapters, prev?.completedChapters ?? 0),
+        totalExp: Math.max(totalExp, prev?.totalExp ?? 0),
+        updatedAt: Date.now(),
+      };
+
+      if (idx >= 0) {
+        entries[idx] = nextEntry;
+      } else {
+        entries.push(nextEntry);
+      }
+
+      await saveRankingStore(entries);
+      res.json({ ok: true, entry: nextEntry, rankings: buildRankingsResponse(entries) });
+    } catch {
+      res.status(500).json({ ok: false, error: 'Gagal menyimpan skor peringkat ke server.' });
+    }
+  });
+
+  app.get('/api/music/search', async (req, res) => {
+    const q = String(req.query.q || '').trim().slice(0, 80);
+    if (!q) {
+      res.status(400).json({ ok: false, results: [], error: 'Masukkan kata kunci judul lagu atau artis.' });
+      return;
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    try {
+      const url = `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=music&entity=song&limit=10`;
+      const upstream = await fetch(url, {
+        signal: controller.signal,
+        headers: { Accept: 'application/json' },
+      });
+      if (!upstream.ok) {
+        throw new Error(`HTTP ${upstream.status}`);
+      }
+      const data = (await upstream.json()) as {
+        results?: Array<{
+          trackId?: number;
+          trackName?: string;
+          artistName?: string;
+          collectionName?: string;
+          previewUrl?: string;
+          artworkUrl100?: string;
+          artworkUrl60?: string;
+          trackTimeMillis?: number;
+        }>;
+      };
+      const items = Array.isArray(data.results) ? data.results : [];
+      const results: MusicSearchResult[] = items
+        .filter((r) => typeof r.previewUrl === 'string' && r.previewUrl.startsWith('http'))
+        .map((r, i) => ({
+          id: String(r.trackId ?? `${q}_${i}`),
+          title: String(r.trackName || 'Tanpa Judul'),
+          artist: String(r.artistName || 'Artis Tidak Diketahui'),
+          album: r.collectionName ? String(r.collectionName) : undefined,
+          previewUrl: String(r.previewUrl).replace(/^http:\/\//i, 'https://'),
+          artworkUrl: (r.artworkUrl100 || r.artworkUrl60 || '').replace(/^http:\/\//i, 'https://') || undefined,
+          durationMs: typeof r.trackTimeMillis === 'number' ? r.trackTimeMillis : 30000,
+          source: 'itunes',
+        }));
+
+      res.json({ ok: true, results });
+    } catch {
+      res.status(503).json({
+        ok: false,
+        results: [],
+        error: 'Pencarian lagu online sedang tidak tersedia atau perangkat offline.',
+      });
+    } finally {
+      clearTimeout(timer);
+    }
   });
 
   if (!IS_PROD) {

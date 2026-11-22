@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Check, Eye, Lock, Package, RotateCcw, Sparkles, X } from 'lucide-react';
+import { Check, Lock, Package, RotateCcw, Sparkles, X } from 'lucide-react';
 import { soundEngine } from '../audio/soundEngine';
 import { INVENTORY_ITEMS } from '../data/gameData';
 import {
@@ -131,8 +131,8 @@ export const InventoryModal: React.FC<InventoryModalProps> = ({
           {/* Left: Live 3D Equipped / Preview Character */}
           <div className="md:col-span-4 bg-[#060b1a] border-b md:border-b-0 md:border-r border-slate-800 flex flex-col min-h-[190px]">
             <div className="px-4 py-2 text-xs text-slate-400 border-b border-slate-800/60 flex items-center justify-between gap-2">
-              <span className="truncate">
-                {previewItem ? `Preview: ${previewItem.name}` : `Karakter · ${character.name}`}
+              <span className="truncate font-medium text-slate-200">
+                {previewItem ? previewItem.name : character.name}
               </span>
               {previewItem ? (
                 <button
@@ -143,10 +143,10 @@ export const InventoryModal: React.FC<InventoryModalProps> = ({
                   className="flex items-center gap-1 px-2 py-0.5 rounded bg-amber-500/20 border border-amber-400/50 text-amber-200 text-[11px] font-semibold cursor-pointer shrink-0"
                 >
                   <RotateCcw className="w-3 h-3" />
-                  Reset
+                  Asli
                 </button>
               ) : (
-                <span className="text-sky-300 font-semibold shrink-0">Live 3D</span>
+                <span className="text-sky-300 font-semibold shrink-0">Terpasang</span>
               )}
             </div>
             <div className="flex-1 min-h-0 relative">
@@ -295,35 +295,46 @@ export const InventoryModal: React.FC<InventoryModalProps> = ({
 
                     {item.equipId && (
                       <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => handleTogglePreview(item.id)}
-                          className={`px-3 py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${
-                            isPreviewing
-                              ? 'bg-amber-400 text-slate-950 font-bold'
-                              : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
-                          } ${!isUnlocked ? 'w-full' : ''}`}
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                          {isPreviewing ? 'Sedang Preview' : 'Preview 3D'}
-                        </button>
-
-                        {isUnlocked && (
+                        {isUnlocked ? (
+                          <>
+                            <button
+                              onClick={() => handleToggleEquip(item)}
+                              className={`flex-1 py-2 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${
+                                equipped
+                                  ? 'bg-emerald-500/20 border border-emerald-400 text-emerald-300 hover:bg-emerald-500/30'
+                                  : 'bg-sky-500 hover:bg-sky-400 text-slate-950'
+                              }`}
+                            >
+                              {equipped ? (
+                                <>
+                                  <Check className="w-3.5 h-3.5" />
+                                  Lepas
+                                </>
+                              ) : (
+                                'Pakai'
+                              )}
+                            </button>
+                            <button
+                              onClick={() => handleTogglePreview(item.id)}
+                              className={`px-3 py-2 rounded-lg text-xs font-semibold cursor-pointer transition-colors ${
+                                isPreviewing
+                                  ? 'bg-amber-400 text-slate-950 font-bold'
+                                  : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
+                              }`}
+                            >
+                              {isPreviewing ? 'Asli' : 'Bandingkan'}
+                            </button>
+                          </>
+                        ) : (
                           <button
-                            onClick={() => handleToggleEquip(item)}
-                            className={`flex-1 py-2 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${
-                              equipped
-                                ? 'bg-emerald-500/20 border border-emerald-400 text-emerald-300 hover:bg-emerald-500/30'
-                                : 'bg-sky-500 hover:bg-sky-400 text-slate-950'
+                            onClick={() => handleTogglePreview(item.id)}
+                            className={`w-full px-3 py-2 rounded-lg text-xs font-semibold cursor-pointer transition-colors ${
+                              isPreviewing
+                                ? 'bg-amber-400 text-slate-950 font-bold'
+                                : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
                             }`}
                           >
-                            {equipped ? (
-                              <>
-                                <Check className="w-3.5 h-3.5" />
-                                Dipakai (Lepas)
-                              </>
-                            ) : (
-                              'Pasang'
-                            )}
+                            {isPreviewing ? 'Tampilan Asli' : 'Lihat di Karakter'}
                           </button>
                         )}
                       </div>

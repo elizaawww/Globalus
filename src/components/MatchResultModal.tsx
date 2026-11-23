@@ -18,7 +18,7 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
 }) => {
   const crewWon = result.winner === 'crewmate';
   const me = result.players.find((p) => p.id === myId);
-  const didIWin = me ? me.role === result.winner : crewWon;
+  const didIWin = me ? (crewWon ? me.role !== 'impostor' : me.role === 'impostor') : crewWon;
 
   useEffect(() => {
     soundEngine.setMusicMode('none');
@@ -59,7 +59,11 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
         <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-4 flex flex-wrap items-center justify-between gap-3 text-xs">
           <div>
             <span className="text-slate-400">Identitas Impostor: </span>
-            <strong className="text-rose-400 font-display text-sm">{result.impostorName}</strong>
+            <strong className="text-rose-400 font-display text-sm">
+              {result.impostorNames && result.impostorNames.length > 0
+                ? result.impostorNames.join(', ')
+                : result.impostorName}
+            </strong>
           </div>
           <div className="flex gap-4 font-mono-num text-slate-300">
             <span>Misi Kru: {result.crewMissionDone}/{result.crewMissionTotal}</span>
@@ -81,7 +85,9 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
                   className={`px-2 py-0.5 rounded font-bold text-[10px] uppercase ${
                     p.role === 'impostor'
                       ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
-                      : 'bg-sky-500/20 text-sky-300 border border-sky-500/40'
+                      : p.role === 'peramal'
+                        ? 'bg-violet-500/20 text-violet-300 border border-violet-500/40'
+                        : 'bg-sky-500/20 text-sky-300 border border-sky-500/40'
                   }`}
                 >
                   {p.role}

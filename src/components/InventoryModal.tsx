@@ -1,19 +1,22 @@
 import React, { useMemo, useState } from 'react';
 import { Check, Lock, Package, RotateCcw, Sparkles, X } from 'lucide-react';
 import { soundEngine } from '../audio/soundEngine';
-import { INVENTORY_ITEMS } from '../data/gameData';
+import { getBatikMerahRequirements, INVENTORY_ITEMS } from '../data/gameData';
 import {
   BodyAccessoryId,
   CharacterConfig,
+  CostumeStyleId,
   HeadAccessoryId,
   InventoryCategory,
   NeckAccessoryId,
+  SaveState,
 } from '../types/game';
 import { CharacterPreview3D } from './CharacterPreview3D';
 
 interface InventoryModalProps {
   character: CharacterConfig;
   unlockedItems: string[];
+  saveState?: SaveState;
   onEquipChange: (next: CharacterConfig) => void;
   onClose: () => void;
 }
@@ -22,12 +25,14 @@ const CATEGORIES: Array<{ id: InventoryCategory; label: string }> = [
   { id: 'head', label: 'Head Accessories' },
   { id: 'neck', label: 'Neck Accessories' },
   { id: 'body', label: 'Body Accessories' },
+  { id: 'costume', label: 'Kostum' },
   { id: 'special', label: 'Special Items' },
 ];
 
 export const InventoryModal: React.FC<InventoryModalProps> = ({
   character,
   unlockedItems,
+  saveState,
   onEquipChange,
   onClose,
 }) => {
@@ -40,6 +45,10 @@ export const InventoryModal: React.FC<InventoryModalProps> = ({
   const collectedRewardCount = INVENTORY_ITEMS.filter(
     (i) => !i.isDefault && unlockedSet.has(i.id)
   ).length;
+  const batikMerahReqs = useMemo(
+    () => (saveState ? getBatikMerahRequirements(saveState) : null),
+    [saveState]
+  );
 
   const previewItem = useMemo(
     () => INVENTORY_ITEMS.find((i) => i.id === previewItemId) || null,
@@ -47,7 +56,11 @@ export const InventoryModal: React.FC<InventoryModalProps> = ({
   );
 
   const previewCharacter = useMemo<CharacterConfig>(() => {
-    if (!previewItem || !previewItem.equipId) return character;
+    if (!previewItem) return character;
+    if (previewItem.category === 'costume' && previewItem.costumeId) {
+      return { ...character, costume: previewItem.costumeId as CostumeStyleId };
+    }
+    if (!previewItem.equipId) return character;
     if (previewItem.category === 'head') {
       return { ...character, head: previewItem.equipId as HeadAccessoryId };
     }
@@ -61,6 +74,9 @@ export const InventoryModal: React.FC<InventoryModalProps> = ({
   }, [character, previewItem]);
 
   const isEquipped = (item: (typeof INVENTORY_ITEMS)[number]) => {
+    if (item.category === 'costume' && item.costumeId) {
+      return character.costume === item.costumeId;
+    }
     if (!item.equipId) return false;
     if (item.category === 'head') return character.head === item.equipId;
     if (item.category === 'body') return character.body === item.equipId;
@@ -69,21 +85,26 @@ export const InventoryModal: React.FC<InventoryModalProps> = ({
   };
 
   const handleToggleEquip = (item: (typeof INVENTORY_ITEMS)[number]) => {
-    if (!item.equipId) return;
+    if (!item.equipId && !item.costumeId) return;
     soundEngine.playClick();
     setPreviewItemId(null);
     const currentlyEquipped = isEquipped(item);
-    if (item.category === 'head') {
+    if (item.category === 'costume' && item.costumeId) {
+      onEquipChange({
+        ...character,
+        costume: currentlyEquipped ? 'standard_crew' : (item.costumeId as CostumeStyleId),
+      });
+    } else if (item.category === 'head' && item.equipId) {
       onEquipChange({
         ...character,
         head: currentlyEquipped ? 'none' : (item.equipId as HeadAccessoryId),
       });
-    } else if (item.category === 'body') {
+    } else if (item.category === 'body' && item.equipId) {
       onEquipChange({
         ...character,
         body: currentlyEquipped ? 'none' : (item.equipId as BodyAccessoryId),
       });
-    } else if (item.category === 'neck') {
+    } else if (item.category === 'neck' && item.equipId) {
       onEquipChange({
         ...character,
         neck: currentlyEquipped ? 'none' : (item.equipId as NeckAccessoryId),
@@ -221,7 +242,7 @@ export const InventoryModal: React.FC<InventoryModalProps> = ({
 
           {/* Right: Categories + Items */}
           <div className="md:col-span-8 flex flex-col p-4 min-h-0">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 bg-slate-950 p-1 rounded-xl mb-4 shrink-0">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 bg-slate-950 p-1 rounded-xl mb-4 shrink-0">
               {CATEGORIES.map((c) => (
                 <button
                   key={c.id}
@@ -290,10 +311,29 @@ export const InventoryModal: React.FC<InventoryModalProps> = ({
                     <p className="text-xs text-slate-300 leading-relaxed">
                       {isUnlocked
                         ? item.description
-                        : `Terkunci. Selesaikan Chapter ${item.rewardChapter} dan cutscene-nya untuk membuka item ini.`}
+                        : item.unlockHint ||
+                          (item.rewardChapter
+                            ? `Terkunci. Selesaikan Chapter ${item.rewardChapter} dan cutscene-nya untuk membuka item ini.`
+                            : 'Terkunci. Selesaikan misi khusus untuk membuka item ini.')}
                     </p>
 
-                    {item.equipId && (
+                    {!isUnlocked && item.id === 'batik_smada_merah' && batikMerahReqs && (
+                      <div className="bg-slate-950/90 border border-slate-800 rounded-lg p-2 space-y-1">
+                        {batikMerahReqs.items.map((req) => (
+                          <div key={req.id} className="flex items-center justify-between gap-2 text-[10px]">
+                            <span className={req.met ? 'text-emerald-300' : 'text-slate-400'}>
+                              {req.met ? '✓ ' : '• '}
+                              {req.label}
+                            </span>
+                            <span className={`font-mono-num font-bold ${req.met ? 'text-emerald-300' : 'text-amber-300'}`}>
+                              {req.currentText}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {(item.equipId || item.costumeId) && (
                       <div className="flex items-center gap-2">
                         {isUnlocked ? (
                           <>
@@ -340,7 +380,7 @@ export const InventoryModal: React.FC<InventoryModalProps> = ({
                       </div>
                     )}
 
-                    {isUnlocked && !item.equipId && (
+                    {isUnlocked && !item.equipId && !item.costumeId && (
                       <div className="text-[11px] font-semibold text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg px-2.5 py-1.5 text-center">
                         Artefak Koleksi Permanen
                       </div>

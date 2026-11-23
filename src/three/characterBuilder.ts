@@ -3,8 +3,10 @@ import { PLAYER_COLORS } from '../data/gameData';
 import {
   CharacterAnimState,
   CharacterConfig,
+  CostumeStyleId,
   EmoteId,
   HelmetDesignId,
+  LobbyCrewNpcId,
   NpcCharacterId,
 } from '../types/game';
 import {
@@ -60,6 +62,53 @@ let sharedBatikEmeraldTex: THREE.CanvasTexture | null = null;
 let sharedBatikMaroonTex: THREE.CanvasTexture | null = null;
 let sharedBatikGoldTex: THREE.CanvasTexture | null = null;
 let sharedEarthTex: THREE.CanvasTexture | null = null;
+const batikSmadaTexCache: Partial<Record<CostumeStyleId, THREE.Texture>> = {};
+
+function getBatikSmadaTexture(costume: CostumeStyleId): THREE.Texture | null {
+  if (
+    costume !== 'batik_smada_merah' &&
+    costume !== 'batik_smada_biru' &&
+    costume !== 'batik_smada_ungu'
+  ) {
+    return null;
+  }
+  if (batikSmadaTexCache[costume]) return batikSmadaTexCache[costume]!;
+  const path =
+    costume === 'batik_smada_merah'
+      ? '/assets/batik/batik_smada_merah.jpg'
+      : costume === 'batik_smada_biru'
+        ? '/assets/batik/batik_smada_biru.jpg'
+        : '/assets/batik/batik_smada_ungu.jpg';
+  const fallbackBg =
+    costume === 'batik_smada_merah'
+      ? '#7f1d1d'
+      : costume === 'batik_smada_biru'
+        ? '#1d4ed8'
+        : '#5b21b6';
+  const fallbackTex = createBatikTexture(fallbackBg, '#eab308');
+  const loader = new THREE.TextureLoader();
+  const loaded = loader.load(
+    path,
+    (t) => {
+      t.colorSpace = THREE.SRGBColorSpace;
+      t.wrapS = THREE.RepeatWrapping;
+      t.wrapT = THREE.RepeatWrapping;
+      t.needsUpdate = true;
+    },
+    undefined,
+    () => {
+      // Fall back safely to procedural batik texture if file fetch fails offline
+      loaded.image = fallbackTex.image as unknown as HTMLImageElement;
+      loaded.colorSpace = THREE.SRGBColorSpace;
+      loaded.needsUpdate = true;
+    }
+  );
+  loaded.colorSpace = THREE.SRGBColorSpace;
+  loaded.wrapS = THREE.RepeatWrapping;
+  loaded.wrapT = THREE.RepeatWrapping;
+  batikSmadaTexCache[costume] = loaded;
+  return loaded;
+}
 
 function getSharedTextures() {
   if (!sharedShadowTex) sharedShadowTex = createContactShadowTexture();
@@ -198,49 +247,118 @@ export function buildAstronautRig(
   buckle.position.set(0, 0.86, 0.39);
   bodyPivot.add(buckle);
 
+  const isBatikSmada =
+    config.costume === 'batik_smada_merah' ||
+    config.costume === 'batik_smada_biru' ||
+    config.costume === 'batik_smada_ungu';
+  const batikSmadaTex = isBatikSmada ? getBatikSmadaTexture(config.costume) : null;
+  const batikSmadaMat = batikSmadaTex
+    ? new THREE.MeshStandardMaterial({
+        map: batikSmadaTex,
+        roughness: 0.54,
+        metalness: 0.1,
+        transparent: isGhost,
+        opacity: isGhost ? 0.5 : 1,
+      })
+    : null;
+  const innerSleeveMat = new THREE.MeshStandardMaterial({
+    color: 0x1e2430,
+    roughness: 0.55,
+    metalness: 0.25,
+    transparent: isGhost,
+    opacity: isGhost ? 0.42 : 1,
+  });
+
   // Detailed Chestplate + Costume Overlays + Identity Badge
-  if (config.costume === 'nusantara_batik') {
-    const batikWrapMat = new THREE.MeshStandardMaterial({
-      map: tex.batikGold,
-      roughness: 0.48,
-      metalness: 0.24,
+  if (isBatikSmada && batikSmadaMat) {
+    const collarMat = new THREE.MeshStandardMaterial({
+      map: batikSmadaTex!,
+      color: 0xf8fafc,
+      roughness: 0.5,
+      metalness: 0.1,
     });
-    const goldPipingMat = new THREE.MeshStandardMaterial({
+    const placketMat = new THREE.MeshStandardMaterial({
+      color: 0x1e2430,
+      roughness: 0.55,
+      metalness: 0.2,
+    });
+    const buttonMat = new THREE.MeshStandardMaterial({
       color: 0xfbbf24,
-      metalness: 0.88,
-      roughness: 0.22,
+      roughness: 0.28,
+      metalness: 0.85,
     });
-    const tunicShell = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.435, 0.445, 0.56, 18, 1, true),
-      batikWrapMat
+    const shirtShell = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.435, 0.445, 0.58, 20, 1, false),
+      batikSmadaMat
     );
-    tunicShell.position.y = 1.1;
-    tunicShell.scale.set(1.02, 1.0, 0.88);
-    const hemTrim = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.024, 8, 22), goldPipingMat);
-    hemTrim.rotation.x = Math.PI / 2;
-    hemTrim.scale.set(1.03, 0.89, 1);
-    hemTrim.position.y = 0.83;
-    const collarLapelL = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.34, 0.1), goldPipingMat);
-    collarLapelL.position.set(-0.11, 1.24, 0.36);
-    collarLapelL.rotation.z = 0.24;
-    const collarLapelR = collarLapelL.clone();
-    collarLapelR.position.x = 0.11;
-    collarLapelR.rotation.z = -0.24;
-    bodyPivot.add(tunicShell, hemTrim, collarLapelL, collarLapelR);
+    shirtShell.position.y = 1.1;
+    shirtShell.scale.set(1.03, 1.0, 0.88);
+    shirtShell.castShadow = !isGhost;
+
+    // Collared front button placket
+    const placket = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.48, 0.045), placketMat);
+    placket.position.set(0, 1.13, 0.382);
+    bodyPivot.add(shirtShell, placket);
+
+    for (let b = 0; b < 5; b++) {
+      const btn = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.02, 8), buttonMat);
+      btn.rotation.x = Math.PI / 2;
+      btn.position.set(0, 1.3 - b * 0.085, 0.405);
+      bodyPivot.add(btn);
+    }
+
+    // Folded shirt V-collar lapels around neck
+    const collarL = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.085, 0.16), collarMat);
+    collarL.position.set(-0.12, 1.4, 0.22);
+    collarL.rotation.set(0.28, 0.22, -0.32);
+    const collarR = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.085, 0.16), collarMat);
+    collarR.position.set(0.12, 1.4, 0.22);
+    collarR.rotation.set(0.28, -0.22, 0.32);
+    bodyPivot.add(collarL, collarR);
+  } else {
+    if (config.costume === 'nusantara_batik') {
+      const batikWrapMat = new THREE.MeshStandardMaterial({
+        map: tex.batikGold,
+        roughness: 0.48,
+        metalness: 0.24,
+      });
+      const goldPipingMat = new THREE.MeshStandardMaterial({
+        color: 0xfbbf24,
+        metalness: 0.88,
+        roughness: 0.22,
+      });
+      const tunicShell = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.435, 0.445, 0.56, 18, 1, true),
+        batikWrapMat
+      );
+      tunicShell.position.y = 1.1;
+      tunicShell.scale.set(1.02, 1.0, 0.88);
+      const hemTrim = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.024, 8, 22), goldPipingMat);
+      hemTrim.rotation.x = Math.PI / 2;
+      hemTrim.scale.set(1.03, 0.89, 1);
+      hemTrim.position.y = 0.83;
+      const collarLapelL = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.34, 0.1), goldPipingMat);
+      collarLapelL.position.set(-0.11, 1.24, 0.36);
+      collarLapelL.rotation.z = 0.24;
+      const collarLapelR = collarLapelL.clone();
+      collarLapelR.position.x = 0.11;
+      collarLapelR.rotation.z = -0.24;
+      bodyPivot.add(tunicShell, hemTrim, collarLapelL, collarLapelR);
+    }
+
+    const chestPlate = new THREE.Mesh(
+      new THREE.BoxGeometry(0.44, 0.26, 0.11),
+      config.costume === 'nusantara_batik'
+        ? new THREE.MeshStandardMaterial({ map: tex.batikMaroon, roughness: 0.42, metalness: 0.28 })
+        : metallicMat
+    );
+    chestPlate.position.set(0, 1.14, 0.35);
+    bodyPivot.add(chestPlate);
+
+    const idBadge = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.08, 0.04), neonMat);
+    idBadge.position.set(-0.11, 1.19, 0.415);
+    bodyPivot.add(idBadge);
   }
-
-  const chestPlate = new THREE.Mesh(
-    new THREE.BoxGeometry(0.44, 0.26, 0.11),
-    config.costume === 'nusantara_batik'
-      ? new THREE.MeshStandardMaterial({ map: tex.batikMaroon, roughness: 0.42, metalness: 0.28 })
-      : metallicMat
-  );
-  chestPlate.position.set(0, 1.14, 0.35);
-  bodyPivot.add(chestPlate);
-
-  const idBadge = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.08, 0.04), neonMat);
-  idBadge.position.set(-0.11, 1.19, 0.415);
-  bodyPivot.add(idBadge);
 
   if (config.costume === 'tactical_armor' || config.costume === 'cyber_neon') {
     const pauldronGeo = new THREE.SphereGeometry(0.19, 12, 10);
@@ -312,15 +430,27 @@ export function buildAstronautRig(
     const armGroup = new THREE.Group();
     armGroup.position.set(xOffset, 1.3, 0);
 
-    const upperSleeve = new THREE.Mesh(new THREE.CapsuleGeometry(0.112, 0.16, 6, 10), suitMat);
+    const upperSleeve = new THREE.Mesh(
+      new THREE.CapsuleGeometry(isBatikSmada ? 0.125 : 0.112, 0.16, 6, 10),
+      isBatikSmada && batikSmadaMat ? batikSmadaMat : suitMat
+    );
     upperSleeve.position.y = -0.11;
     upperSleeve.castShadow = !isGhost;
     armGroup.add(upperSleeve);
 
+    if (isBatikSmada && batikSmadaMat) {
+      const shortHem = new THREE.Mesh(new THREE.CylinderGeometry(0.132, 0.132, 0.032, 12), batikSmadaMat);
+      shortHem.position.y = -0.2;
+      armGroup.add(shortHem);
+    }
+
     const forearmGroup = new THREE.Group();
     forearmGroup.position.set(0, -0.22, 0);
 
-    const lowerSleeve = new THREE.Mesh(new THREE.CapsuleGeometry(0.102, 0.14, 6, 10), suitMat);
+    const lowerSleeve = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.098, 0.14, 6, 10),
+      isBatikSmada ? innerSleeveMat : suitMat
+    );
     lowerSleeve.position.y = -0.09;
     lowerSleeve.castShadow = !isGhost;
     forearmGroup.add(lowerSleeve);
@@ -1229,7 +1359,7 @@ export function buildAstronautRig(
   };
 }
 
-export function buildNpcAstronaut(npcId: NpcCharacterId | 'companion'): CharacterRig {
+export function buildNpcAstronaut(npcId: NpcCharacterId | LobbyCrewNpcId | 'companion'): CharacterRig {
   const tex = getSharedTextures();
   if (npcId === 'companion') {
     return buildAstronautRig(
@@ -1243,6 +1373,62 @@ export function buildNpcAstronaut(npcId: NpcCharacterId | 'companion'): Characte
         neck: 'none',
       },
       { showNameplate: true, nameplateSubtitle: 'Teknisi Stasiun' }
+    );
+  }
+  if (npcId === 'aulia') {
+    return buildAstronautRig(
+      {
+        name: 'AULIA',
+        color: 'hijau',
+        helmet: 'standard_visor',
+        costume: 'standard_crew',
+        head: 'headset',
+        body: 'backpack',
+        neck: 'none',
+      },
+      { showNameplate: true, nameplateSubtitle: 'Analis Budaya' }
+    );
+  }
+  if (npcId === 'dani') {
+    return buildAstronautRig(
+      {
+        name: 'DANI',
+        color: 'orange',
+        helmet: 'cyber_recon',
+        costume: 'tactical_armor',
+        head: 'none',
+        body: 'tech_backpack',
+        neck: 'none',
+      },
+      { showNameplate: true, nameplateSubtitle: 'Teknisi Lapangan' }
+    );
+  }
+  if (npcId === 'sari') {
+    return buildAstronautRig(
+      {
+        name: 'SARI',
+        color: 'ungu',
+        helmet: 'explorer_dome',
+        costume: 'standard_crew',
+        head: 'bunga',
+        body: 'backpack',
+        neck: 'kalung',
+      },
+      { showNameplate: true, nameplateSubtitle: 'Kurator Data' }
+    );
+  }
+  if (npcId === 'raka') {
+    return buildAstronautRig(
+      {
+        name: 'RAKA',
+        color: 'biru',
+        helmet: 'standard_visor',
+        costume: 'standard_crew',
+        head: 'aksesori_antariksa',
+        body: 'jaket_astronaut',
+        neck: 'none',
+      },
+      { showNameplate: true, nameplateSubtitle: 'Navigator Kru' }
     );
   }
   if (npcId === 'rex') {
@@ -1412,7 +1598,17 @@ export function animateCharacterRig(
   time: number,
   animState: CharacterAnimState,
   delta: number,
-  gesture?: 'explain' | 'point' | 'nod' | 'ponder' | 'gearup' | 'scratch_head' | 'tilt_curious' | 'panic',
+  gesture?:
+    | 'explain'
+    | 'point'
+    | 'nod'
+    | 'ponder'
+    | 'gearup'
+    | 'scratch_head'
+    | 'tilt_curious'
+    | 'panic'
+    | 'crouch_check'
+    | 'shock_cover',
   activeEmote?: EmoteId | null,
   emoteElapsed = 0
 ) {
@@ -1515,14 +1711,46 @@ export function animateCharacterRig(
     }
     rig.bodyPivot.scale.setScalar(1);
   } else if (animState === 'defeat') {
-    rig.bodyPivot.position.y = -0.05;
-    rig.bodyPivot.rotation.x = 0.22;
-    rig.headGroup.rotation.x = 0.35;
-    rig.leftArm.rotation.x = 0.15;
-    lFore.rotation.set(-0.2, 0, 0);
+    if (animState === 'defeat') {
+      rig.bodyPivot.position.y = -0.05;
+      rig.bodyPivot.rotation.x = 0.22;
+      rig.headGroup.rotation.x = 0.35;
+      rig.leftArm.rotation.x = 0.15;
+      lFore.rotation.set(-0.2, 0, 0);
+      if (!rig.heldProp) {
+        rig.rightArm.rotation.x = 0.15;
+        rFore.rotation.set(-0.2, 0, 0);
+      }
+    }
+  } else if (animState === 'climb') {
+    const phase = time * 9.5;
+    const wave = Math.sin(phase);
+    rig.bodyPivot.position.y = Math.abs(Math.cos(phase)) * 0.04;
+    rig.bodyPivot.rotation.set(0.06, 0, 0);
+    rig.bodyPivot.scale.setScalar(THREE.MathUtils.lerp(rig.bodyPivot.scale.x, 1, k));
+    rig.headGroup.rotation.set(-0.18, 0, 0);
+    rig.leftLeg.rotation.x = -0.35 + wave * 0.42;
+    rig.rightLeg.rotation.x = -0.35 - wave * 0.42;
+    rig.leftArm.rotation.set(-1.55 - wave * 0.55, 0, 0.14);
+    lFore.rotation.set(-0.75 + wave * 0.2, 0, 0);
     if (!rig.heldProp) {
-      rig.rightArm.rotation.x = 0.15;
-      rFore.rotation.set(-0.2, 0, 0);
+      rig.rightArm.rotation.set(-1.55 + wave * 0.55, 0, -0.14);
+      rFore.rotation.set(-0.75 - wave * 0.2, 0, 0);
+    }
+  } else if (animState === 'collapse') {
+    rig.bodyPivot.position.y = THREE.MathUtils.lerp(rig.bodyPivot.position.y, 0.28, k);
+    rig.bodyPivot.rotation.x = THREE.MathUtils.lerp(rig.bodyPivot.rotation.x, 0.12, k);
+    rig.bodyPivot.rotation.y = THREE.MathUtils.lerp(rig.bodyPivot.rotation.y, 0, k);
+    rig.bodyPivot.rotation.z = THREE.MathUtils.lerp(rig.bodyPivot.rotation.z, Math.PI * 0.44, k);
+    rig.bodyPivot.scale.setScalar(THREE.MathUtils.lerp(rig.bodyPivot.scale.x, 1, k));
+    rig.headGroup.rotation.set(0.22, -0.15, -0.18);
+    rig.leftLeg.rotation.x = 0.18;
+    rig.rightLeg.rotation.x = -0.12;
+    rig.leftArm.rotation.set(-0.35, 0, 0.45);
+    lFore.rotation.set(-0.35, 0, 0);
+    if (!rig.heldProp) {
+      rig.rightArm.rotation.set(0.18, 0, -0.32);
+      rFore.rotation.set(-0.25, 0, 0);
     }
   } else if (activeEmote) {
     const et = emoteElapsed || time;
@@ -1555,15 +1783,15 @@ export function animateCharacterRig(
         rFore.rotation.set(-0.85, 0, 0.45);
       }
     } else if (activeEmote === 'salute') {
-      rig.bodyPivot.position.y = Math.sin(et * 3) * 0.015;
-      rig.bodyPivot.rotation.x = -0.04;
-      rig.headGroup.rotation.set(-0.05, -0.06, 0);
+      rig.bodyPivot.position.y = Math.sin(et * 2.6) * 0.012;
+      rig.bodyPivot.rotation.x = 0;
+      rig.headGroup.rotation.set(0, -0.04, 0);
       rig.leftArm.rotation.set(0.05, 0, 0.08);
-      lFore.rotation.set(-0.1, 0, 0);
+      lFore.rotation.set(-0.12, 0, 0);
       if (!rig.heldProp) {
-        // Right elbow out & bent smartly toward helmet visor brow without clipping helmet
-        rig.rightArm.rotation.set(-1.05, 0, -0.82);
-        rFore.rotation.set(-1.35, 0, 0.72);
+        // Right arm & glove held cleanly beside helmet visor brow without penetrating helmet
+        rig.rightArm.rotation.set(-1.18, 0, -0.72);
+        rFore.rotation.set(-1.32, 0.25, 0.58);
       }
     } else if (activeEmote === 'clap') {
       const clap = Math.abs(Math.sin(et * 11));
@@ -1818,6 +2046,28 @@ export function animateCharacterRig(
         rig.rightArm.rotation.x = THREE.MathUtils.lerp(rig.rightArm.rotation.x, -0.82, k);
         rig.rightArm.rotation.z = THREE.MathUtils.lerp(rig.rightArm.rotation.z, -0.22, k);
         rFore.rotation.set(THREE.MathUtils.lerp(rFore.rotation.x, -1.22 + Math.sin(time * 4.5) * 0.06, k), 0, THREE.MathUtils.lerp(rFore.rotation.z, 0.36, k));
+      }
+    } else if (gesture === 'crouch_check') {
+      rig.bodyPivot.position.y = THREE.MathUtils.lerp(rig.bodyPivot.position.y, -0.22, k);
+      rig.bodyPivot.rotation.x = THREE.MathUtils.lerp(rig.bodyPivot.rotation.x, 0.35, k);
+      rig.leftLeg.rotation.x = THREE.MathUtils.lerp(rig.leftLeg.rotation.x, -0.58, k);
+      rig.rightLeg.rotation.x = THREE.MathUtils.lerp(rig.rightLeg.rotation.x, -0.45, k);
+      rig.headGroup.rotation.set(0.28, Math.sin(time * 2) * 0.1, 0);
+      rig.leftArm.rotation.set(-0.75, 0, 0.18);
+      lFore.rotation.set(-0.35, 0, 0);
+      if (!rig.heldProp) {
+        rig.rightArm.rotation.set(-1.05 + Math.sin(time * 3.5) * 0.06, 0, -0.14);
+        rFore.rotation.set(-0.25, 0, 0);
+      }
+    } else if (gesture === 'shock_cover') {
+      rig.bodyPivot.position.y = Math.abs(Math.sin(time * 6)) * 0.02;
+      rig.bodyPivot.rotation.x = THREE.MathUtils.lerp(rig.bodyPivot.rotation.x, -0.06, k);
+      rig.headGroup.rotation.set(-0.08, Math.sin(time * 5) * 0.08, 0.06);
+      rig.leftArm.rotation.set(-1.35, 0, 0.25);
+      lFore.rotation.set(-1.15, 0, -0.42);
+      if (!rig.heldProp) {
+        rig.rightArm.rotation.set(-1.35, 0, -0.25);
+        rFore.rotation.set(-1.15, 0, 0.42);
       }
     } else {
       rig.headGroup.rotation.x = THREE.MathUtils.lerp(rig.headGroup.rotation.x, 0, k);

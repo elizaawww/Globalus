@@ -309,7 +309,8 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                   Aturan Social Deduction Edukatif:
                 </p>
                 <p>• <strong className="text-sky-300">Crewmate</strong> menjelajahi 11 ruangan dan menyelesaikan misi Sosiologi untuk memulihkan Global Network.</p>
-                <p>• <strong className="text-rose-300">1 Impostor</strong> dipilih acak secara rahasia. Impostor dapat memakai <strong>Vent System</strong>, menyelesaikan tantangan sabotase Sosiologi, dan mengirim kru ke Kapsul Stasis.</p>
+                <p>• <strong className="text-rose-300">1–3 Impostor</strong> (diatur Host) dipilih acak secara rahasia untuk memakai <strong>Vent System</strong>, sabotase Sosiologi, dan mengirim kru ke Kapsul Stasis.</p>
+                <p>• Jika room berjumlah <strong>11–15 pemain</strong>, 1 kru terpilih menjadi <strong className="text-violet-300">Peramal</strong> yang bisa menerawang 1 pemain saat Emergency Meeting!</p>
                 <p>• Gunakan tombol <strong>Emergency Meeting</strong> di Central Lobby atau laporkan Kapsul Stasis untuk berdiskusi dan voting!</p>
               </div>
             </div>
@@ -339,7 +340,7 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                   <div>
                     <p className="text-sm font-bold text-white flex items-center gap-1.5">
                       <Users className="w-4 h-4 text-sky-400" />
-                      {players.length} / 10 Pemain di Lobby
+                      {players.length} / {snapshot?.maxPlayers || 15} Pemain di Lobby
                     </p>
                     <p className="text-xs text-slate-400">Minimal 2 pemain untuk memulai misi multiplayer</p>
                   </div>
@@ -536,7 +537,7 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                   Persiapan Misi
                 </h3>
                 <p className="text-xs text-slate-300 leading-relaxed">
-                  Pastikan seluruh pemain di room menekan tombol <strong>SIAP</strong>. Saat permainan dimulai, server akan mengacak secara rahasia 1 pemain sebagai <strong>Impostor</strong> dan lainnya sebagai <strong>Crewmate</strong>.
+                  Pastikan seluruh pemain di room menekan tombol <strong>SIAP</strong>. Saat permainan dimulai, server akan mengacak <strong>Impostor</strong> (1–3 sesuai pengaturan Host) serta 1 <strong>Peramal</strong> bila jumlah pemain ≥ 11.
                 </p>
                 <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-3 text-xs text-slate-300 space-y-1">
                   <p><span className="text-slate-400">Nama Kru:</span> <strong className="text-white">{character.name}</strong></p>

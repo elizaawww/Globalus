@@ -25,6 +25,7 @@ import {
   CUTSCENES,
   EMOTE_MAP,
   FIRST_MEETING_REACTIONS,
+  getBatikMerahRequirements,
   IMPOSTOR_CHALLENGES,
   INVENTORY_ITEMS,
   MISSION_META,
@@ -49,6 +50,7 @@ import {
   ChapterId,
   CharacterAnimState,
   CharacterConfig,
+  CostumeStyleId,
   CutsceneCharacterId,
   CutsceneCheckpoint,
   CutsceneLine,
@@ -57,9 +59,11 @@ import {
   GameMode,
   GameSettings,
   HeadAccessoryId,
+  HostSettings,
   ImpostorChallenge,
   InventoryItemDef,
   MissionId,
+  MultiplayerRole,
   NeckAccessoryId,
   NpcCharacterId,
   RoomId,
@@ -125,15 +129,20 @@ export default function App() {
   const [pendingReward, setPendingReward] = useState<{
     chapter: ChapterId;
     rewardItem: InventoryItemDef;
-    specialItem: InventoryItemDef;
+    specialItem?: InventoryItemDef;
+    titleLabel?: string;
+    subtitleLabel?: string;
+    continueLabel?: string;
+    isSpecialBonus?: boolean;
   } | null>(null);
+  const [pendingBatikMerahModal, setPendingBatikMerahModal] = useState(false);
   const [quizOpen, setQuizOpen] = useState(false);
   const [tutorialModal, setTutorialModal] = useState<{
     open: boolean;
     startPendingSolo: boolean;
   }>({ open: false, startPendingSolo: false });
   const [chapterIntro, setChapterIntro] = useState<ChapterId | null>(null);
-  const [roleRevealBanner, setRoleRevealBanner] = useState<'crewmate' | 'impostor' | null>(null);
+  const [roleRevealBanner, setRoleRevealBanner] = useState<MultiplayerRole | null>(null);
   const [infoNotice, setInfoNotice] = useState<string | null>(null);
   const [latestEliminationEvent, setLatestEliminationEvent] = useState<EliminationEvent | null>(null);
   const [stasisOverlayEvent, setStasisOverlayEvent] = useState<EliminationEvent | null>(null);
@@ -227,7 +236,7 @@ export default function App() {
       gameMode === 'multiplayer' &&
       mp.isOnline &&
       Boolean(mp.roomCode) &&
-      (view === 'playing' || view === 'multiplayer_lobby'),
+      (view === 'playing' || view === 'multiplayer_lobby' || view === 'customize'),
     voiceFeatureEnabled: saveState.settings.voiceEnabled !== false,
     voiceVolume: saveState.settings.voiceVolume ?? 0.9,
     myId: mp.playerId,
@@ -283,6 +292,8 @@ export default function App() {
     nearbyStasisPod: null,
     nearbyEmergencyConsole: false,
     nearbySecretTv: false,
+    nearbyCustomizeTerminal: false,
+    nearbyAuliaInteract: null,
     nearbyEliminateTarget: null,
   });
 
@@ -384,7 +395,28 @@ export default function App() {
     return () => window.removeEventListener('online', handleOnline);
   }, [syncRankingToServer, saveState.pendingRankingSync]);
 
-  // React to Multiplayer server phase transitions (Central Lobby synchronized spawn & post-meeting respawn)
+  // Helper: evaluate & unlock Batik SMADA Merah whenever all 5 cumulative conditions are met (#41)
+  const applyBatikMerahCheck = useCallback(
+    (state: SaveState): { nextState: SaveState; newlyUnlocked: boolean } => {
+      if (state.unlockedItems.includes('batik_smada_merah')) {
+        return { nextState: state, newlyUnlocked: false };
+      }
+      const reqs = getBatikMerahRequirements(state);
+      if (!reqs.allMet) {
+        return { nextState: state, newlyUnlocked: false };
+      }
+      const nextState: SaveState = {
+        ...state,
+        unlockedItems: [...state.unlockedItems, 'batik_smada_merah'],
+        totalExp: state.totalExp + 300,
+        pendingRankingSync: true,
+      };
+      return { nextState, newlyUnlocked: true };
+    },
+    []
+  );
+
+  // React to Multiplayer server phase transitions (Playable 3D Waiting Lobby, Match Start, Post-Meeting Respawn, Return to Lobby)
   const prevMpPhaseRef = useRef<string | null>(null);
   useEffect(() => {
     if (gameMode !== 'multiplayer' || !mp.snapshot) {
@@ -395,13 +427,35 @@ export default function App() {
     const phase = mp.snapshot.phase;
     const prev = prevMpPhaseRef.current;
     prevMpPhaseRef.current = phase;
+    const me = mp.snapshot.players.find((p) => p.id === mp.playerId);
 
-    if (phase === 'playing' && prev === 'lobby') {
+    if (phase === 'lobby') {
+      // Entering room from Create/Join screen OR returning from finished match -> Playable 3D Central Lobby (#47)
+      if (view === 'multiplayer_lobby' || (prev && prev !== 'lobby')) {
+        remoteMoveBufferRef.current.clear();
+        seenElimIdsRef.current.clear();
+        setLatestEliminationEvent(null);
+        setStasisOverlayEvent(null);
+        setMpDoneMissions([]);
+        setMpDoneImpChallenges([]);
+        setActiveMission(null);
+        setActiveImpChallenge(null);
+        setActiveVentId(null);
+        setIsPaused(false);
+        setView('playing');
+        if (me) {
+          setTeleportPos({ x: me.x, z: me.z, yaw: me.yaw, tick: Date.now(), skipAnim: true });
+        }
+      }
+    } else if (
+      prev === 'lobby' ||
+      view === 'multiplayer_lobby'
+    ) {
       remoteMoveBufferRef.current.clear();
       seenElimIdsRef.current.clear();
       setLatestEliminationEvent(null);
       setStasisOverlayEvent(null);
-      setMpDoneMissions([]);
+      setMpDoneMissions(mp.snapshot.myCompletedMissions || []);
       setMpDoneImpChallenges([]);
       setActiveMission(null);
       setActiveImpChallenge(null);
@@ -410,26 +464,109 @@ export default function App() {
       setView('playing');
       soundEngine.playGameStart();
 
-      const me = mp.snapshot.players.find((p) => p.id === mp.playerId);
       if (me) {
         setTeleportPos({ x: me.x, z: me.z, yaw: me.yaw, tick: Date.now(), skipAnim: true });
       }
-      if (mp.role) {
+      if (mp.role && prev === 'lobby') {
         setRoleRevealBanner(mp.role);
-        window.setTimeout(() => setRoleRevealBanner(null), 4200);
+        window.setTimeout(() => setRoleRevealBanner(null), 4500);
       }
     } else if (phase === 'playing' && prev === 'meeting') {
-      const me = mp.snapshot.players.find((p) => p.id === mp.playerId);
       if (me) {
         setTeleportPos({ x: me.x, z: me.z, yaw: me.yaw, tick: Date.now(), skipAnim: true });
       }
-    } else if (phase === 'lobby' && view === 'playing') {
-      setActiveMission(null);
-      setActiveImpChallenge(null);
-      setActiveVentId(null);
-      setView('multiplayer_lobby');
     }
   }, [gameMode, mp.snapshot, mp.playerId, mp.role, view]);
+
+  // Keep local completed mission checklist synchronized with server snapshot (supports reconnect recovery, #46)
+  useEffect(() => {
+    if (gameMode !== 'multiplayer' || !mp.snapshot) return;
+    if (mp.snapshot.phase === 'lobby') {
+      setMpDoneMissions((prev) => (prev.length > 0 ? [] : prev));
+      return;
+    }
+    const serverMissions = mp.snapshot.myCompletedMissions || [];
+    if (serverMissions.length > 0) {
+      setMpDoneMissions((prev) => {
+        const merged = Array.from(new Set([...prev, ...serverMissions]));
+        return merged.length === prev.length ? prev : merged;
+      });
+    }
+  }, [gameMode, mp.snapshot]);
+
+  // Track completed multiplayer matches once per matchId & check cumulative Batik SMADA Merah (#41)
+  useEffect(() => {
+    if (gameMode !== 'multiplayer' || mp.snapshot?.phase !== 'ended' || !mp.snapshot.matchResult) {
+      return;
+    }
+    const res = mp.snapshot.matchResult;
+    const matchKey =
+      res.matchId || `${mp.snapshot.roomCode}_${res.winner}_${res.crewMissionDone}_${res.players.length}`;
+    const cur = saveStateRef.current;
+    const prevIds = cur.countedMatchIds || [];
+    if (prevIds.includes(matchKey)) return;
+
+    const incremented: SaveState = {
+      ...cur,
+      multiplayerCompletions: (cur.multiplayerCompletions ?? 0) + 1,
+      countedMatchIds: [...prevIds, matchKey].slice(-50),
+      totalExp: cur.totalExp + 60,
+      pendingRankingSync: true,
+    };
+    const { nextState, newlyUnlocked } = applyBatikMerahCheck(incremented);
+    saveStateRef.current = nextState;
+    setSaveState(nextState);
+    persistSaveStateNow(nextState);
+    void syncRankingToServer(nextState);
+    if (newlyUnlocked) {
+      setPendingBatikMerahModal(true);
+      showNotice('SELAMAT! Seluruh 5 syarat terpenuhi — Kostum Batik SMADA Merah terbuka!');
+    }
+  }, [gameMode, mp.snapshot?.phase, mp.snapshot?.matchResult, mp.snapshot?.roomCode, applyBatikMerahCheck, syncRankingToServer, showNotice]);
+
+  // Show queued Batik SMADA Merah reward modal when no other blocking modal is open (#41)
+  useEffect(() => {
+    if (!pendingBatikMerahModal) return;
+    const mpMeetingActive =
+      gameMode === 'multiplayer' && mp.snapshot?.phase === 'meeting' && Boolean(mp.snapshot.meeting);
+    const mpResultActive =
+      gameMode === 'multiplayer' && mp.snapshot?.phase === 'ended' && Boolean(mp.snapshot.matchResult);
+    const hasBlockingModal =
+      Boolean(pendingReward) ||
+      Boolean(activeCutscene) ||
+      Boolean(chapterIntro) ||
+      Boolean(cutsceneResumePrompt) ||
+      quizOpen ||
+      mpMeetingActive ||
+      mpResultActive;
+    if (hasBlockingModal) return;
+    if (view !== 'playing' && view !== 'ending' && view !== 'home') return;
+
+    const merahItem = INVENTORY_ITEMS.find((i) => i.id === 'batik_smada_merah');
+    setPendingBatikMerahModal(false);
+    if (merahItem) {
+      setPendingReward({
+        chapter: 5,
+        rewardItem: merahItem,
+        titleLabel: 'MASTER KOLEKTOR GLOBALUS!',
+        subtitleLabel: '5 Syarat Kumulatif Terpenuhi — Batik SMADA Merah Terbuka',
+        continueLabel: 'LANJUT BERMAIN',
+        isSpecialBonus: true,
+      });
+    }
+  }, [
+    pendingBatikMerahModal,
+    pendingReward,
+    activeCutscene,
+    chapterIntro,
+    cutsceneResumePrompt,
+    quizOpen,
+    view,
+    gameMode,
+    mp.snapshot?.phase,
+    mp.snapshot?.meeting,
+    mp.snapshot?.matchResult,
+  ]);
 
   // Sync vent teleport coordinate from server
   useEffect(() => {
@@ -712,6 +849,10 @@ export default function App() {
       const currentReadBooks = saveStateRef.current.readBooks || [];
 
       if (gameMode === 'multiplayer') {
+        if (mp.snapshot?.phase === 'lobby') {
+          showNotice('Pertandingan belum dimulai! Tekan MULAI di panel Lobby untuk memulai permainan.');
+          return;
+        }
         if (roomId === 'central_lobby') {
           if (amAlive) {
             mp.callMeeting('emergency');
@@ -896,14 +1037,138 @@ export default function App() {
 
   const handleLockedDoorBlocked = useCallback(
     (reason: 'chapter_locked' | 'completed_locked') => {
+      if (gameMode === 'multiplayer' && mp.snapshot?.phase === 'lobby') {
+        showNotice('Pintu sektor stasiun terkunci selama di Lobby Multiplayer. Tekan MULAI untuk memulai permainan!');
+        return;
+      }
       if (reason === 'chapter_locked') {
         showNotice('Complete the previous chapter to unlock this room.');
       } else {
         showNotice('Ruangan ini sudah selesai & terkunci otomatis.');
       }
     },
-    [showNotice]
+    [gameMode, mp.snapshot?.phase, showNotice]
   );
+
+  // Trigger Aulia Chapter 4+ Secret Quest automatically once player enters Central Lobby in Chapter 4+ (#39)
+  useEffect(() => {
+    if (view !== 'playing' || gameMode !== 'solo') return;
+    if (hud.currentRoomId !== 'central_lobby') return;
+    if (saveState.unlockedChapter < 4) return;
+    const stage = saveState.auliaSecretQuest?.stage || 'not_started';
+    if (stage !== 'not_started') return;
+    if (
+      activeCutscene ||
+      cutsceneResumePrompt ||
+      pendingReward ||
+      chapterIntro ||
+      quizOpen ||
+      activeMission ||
+      activeTheoryBook ||
+      activeImpChallenge ||
+      activeVentId ||
+      inventoryOpen ||
+      showRankingModal ||
+      showMusicModal ||
+      secretTvOpen ||
+      tutorialModal.open
+    ) {
+      return;
+    }
+
+    const prev = saveStateRef.current;
+    const started: SaveState = {
+      ...prev,
+      auliaSecretQuest: {
+        stage: 'cutscene_collapse',
+        hasBox: false,
+        ladderPlaced: false,
+        checkpointLine: 0,
+      },
+      activeCutsceneCheckpoint: { cutsceneId: 'aulia_collapse', lineIndex: 0 },
+    };
+    saveStateRef.current = started;
+    setSaveState(started);
+    persistSaveStateNow(started);
+    setActiveCutsceneInitialLine(0);
+    setActiveCutscene('aulia_collapse');
+  }, [
+    view,
+    gameMode,
+    hud.currentRoomId,
+    saveState.unlockedChapter,
+    saveState.auliaSecretQuest?.stage,
+    activeCutscene,
+    cutsceneResumePrompt,
+    pendingReward,
+    chapterIntro,
+    quizOpen,
+    activeMission,
+    activeTheoryBook,
+    activeImpChallenge,
+    activeVentId,
+    inventoryOpen,
+    showRankingModal,
+    showMusicModal,
+    secretTvOpen,
+    tutorialModal.open,
+  ]);
+
+  const handleInteractAulia = useCallback(
+    (action: 'aulia_talk' | 'aulia_ladder_move' | 'aulia_climb_box') => {
+      if (gameMode !== 'solo') return;
+      const prev = saveStateRef.current;
+      const quest = prev.auliaSecretQuest || {
+        stage: 'not_started' as const,
+        hasBox: false,
+        ladderPlaced: false,
+      };
+      if (action === 'aulia_ladder_move') {
+        if (quest.stage !== 'seeking_box' || quest.ladderPlaced) return;
+        soundEngine.playClick();
+        const next: SaveState = {
+          ...prev,
+          auliaSecretQuest: {
+            ...quest,
+            stage: 'seeking_box',
+            ladderPlaced: true,
+          },
+        };
+        saveStateRef.current = next;
+        setSaveState(next);
+        persistSaveStateNow(next);
+        showNotice(
+          'Tangga ditempatkan di depan lemari tinggi! Tekan [E] atau Tap tangga sekali lagi untuk memanjat & mengambil kotak.'
+        );
+      } else if (action === 'aulia_climb_box') {
+        if (quest.stage !== 'seeking_box' || !quest.ladderPlaced) return;
+        soundEngine.playMissionStart();
+        setActiveCutsceneInitialLine(0);
+        setActiveCutscene('aulia_febriyani');
+      } else if (action === 'aulia_talk') {
+        if (quest.stage === 'returning_box' && quest.hasBox) {
+          soundEngine.playMissionStart();
+          setActiveCutsceneInitialLine(0);
+          setActiveCutscene('aulia_open');
+        } else if (quest.stage === 'seeking_box') {
+          showNotice(
+            'Aulia sedang ditangani Dani, Sari, & Raka! Segera ke Cultural Room untuk mencari kotak berlabel "Febriyani" di atas lemari tinggi.'
+          );
+        }
+      }
+    },
+    [gameMode, showNotice]
+  );
+
+  const handleLeaveMpRoom = useCallback(() => {
+    setActiveMission(null);
+    setActiveImpChallenge(null);
+    setActiveVentId(null);
+    setIsPaused(false);
+    handleCancelEmote();
+    mp.leaveRoom();
+    setView('multiplayer_lobby');
+  }, [handleCancelEmote, mp]);
 
   const handleCompleteMission = (missionId: MissionId, score: number) => {
     const currentReadBooks = saveStateRef.current.readBooks || [];
@@ -1043,6 +1308,99 @@ export default function App() {
         return;
       }
 
+      if (cs === 'aulia_collapse') {
+        const next: SaveState = {
+          ...prev,
+          activeCutsceneCheckpoint: null,
+          completedCutscenes: prev.completedCutscenes.includes('aulia_collapse')
+            ? prev.completedCutscenes
+            : [...prev.completedCutscenes, 'aulia_collapse'],
+          auliaSecretQuest: {
+            stage: 'seeking_box',
+            hasBox: false,
+            ladderPlaced: Boolean(prev.auliaSecretQuest?.ladderPlaced),
+            checkpointLine: 0,
+          },
+        };
+        saveStateRef.current = next;
+        setSaveState(next);
+        persistSaveStateNow(next);
+        showNotice(
+          'Misi Rahasia Aulia dimulai! Pergi ke Cultural Room, pasang tangga ke lemari tinggi, lalu temukan kotak "Febriyani".'
+        );
+        return;
+      }
+
+      if (cs === 'aulia_febriyani') {
+        const next: SaveState = {
+          ...prev,
+          activeCutsceneCheckpoint: null,
+          completedCutscenes: prev.completedCutscenes.includes('aulia_febriyani')
+            ? prev.completedCutscenes
+            : [...prev.completedCutscenes, 'aulia_febriyani'],
+          auliaSecretQuest: {
+            stage: 'returning_box',
+            hasBox: true,
+            ladderPlaced: true,
+            checkpointLine: 0,
+          },
+        };
+        saveStateRef.current = next;
+        setSaveState(next);
+        persistSaveStateNow(next);
+        showNotice(
+          'Kotak misterius "Febriyani" ditemukan! Bawa kembali dan serahkan kepada Aulia di Central Lobby.'
+        );
+        return;
+      }
+
+      if (cs === 'aulia_open') {
+        const alreadyHadBiru = prev.unlockedItems.includes('batik_smada_biru');
+        const nextItems = alreadyHadBiru
+          ? prev.unlockedItems
+          : [...prev.unlockedItems, 'batik_smada_biru'];
+        const candidate: SaveState = {
+          ...prev,
+          unlockedItems: nextItems,
+          totalExp: alreadyHadBiru ? prev.totalExp : prev.totalExp + 180,
+          pendingRankingSync: true,
+          activeCutsceneCheckpoint: null,
+          completedCutscenes: prev.completedCutscenes.includes('aulia_open')
+            ? prev.completedCutscenes
+            : [...prev.completedCutscenes, 'aulia_open'],
+          auliaSecretQuest: {
+            stage: 'completed',
+            hasBox: true,
+            ladderPlaced: true,
+            checkpointLine: 0,
+          },
+        };
+        const { nextState, newlyUnlocked: merahUnlocked } = applyBatikMerahCheck(candidate);
+        saveStateRef.current = nextState;
+        setSaveState(nextState);
+        persistSaveStateNow(nextState);
+        void syncRankingToServer(nextState);
+
+        if (merahUnlocked) {
+          setPendingBatikMerahModal(true);
+        }
+
+        const biruItem = INVENTORY_ITEMS.find((i) => i.id === 'batik_smada_biru');
+        if (!alreadyHadBiru && biruItem) {
+          setPendingReward({
+            chapter: 4,
+            rewardItem: biruItem,
+            titleLabel: 'MISI RAHASIA AULIA SELESAI',
+            subtitleLabel: 'Hadiah Spesial — Seragam Batik SMADA Biru',
+            continueLabel: 'LANJUT BERMAIN',
+            isSpecialBonus: true,
+          });
+        } else {
+          showNotice('Misi Rahasia Aulia selesai!');
+        }
+        return;
+      }
+
       const chap: ChapterId =
         cs === 'rex'
           ? 1
@@ -1059,8 +1417,12 @@ export default function App() {
         Boolean(prev.replayMode)
       );
 
+      // #40: Completing Chapter 5 (ratu_laras) permanently unlocks Batik SMADA Ungu
+      const ch5BatikUngu = chap === 5 ? ['batik_smada_ungu'] : [];
+      const newlyUnlockedCh5Batik = chap === 5 && !prev.unlockedItems.includes('batik_smada_ungu');
+
       const nextUnlockedItems = Array.from(
-        new Set([...prev.unlockedItems, rewardItem.id, specialItem.id])
+        new Set([...prev.unlockedItems, rewardItem.id, specialItem.id, ...ch5BatikUngu])
       );
       const chapEmote = CHAPTER_UNLOCKED_EMOTES[chap];
       const nextUnlockedEmotes = Array.from(
@@ -1081,7 +1443,7 @@ export default function App() {
         chap < 5 ? chap + 1 : 5
       ) as ChapterId;
 
-      const nextState: SaveState = {
+      const candidateState: SaveState = {
         ...prev,
         unlockedItems: nextUnlockedItems,
         unlockedEmotes: nextUnlockedEmotes,
@@ -1104,10 +1466,18 @@ export default function App() {
         },
       };
 
+      const { nextState, newlyUnlocked: merahUnlocked } = applyBatikMerahCheck(candidateState);
       saveStateRef.current = nextState;
       setSaveState(nextState);
       persistSaveStateNow(nextState);
       void syncRankingToServer(nextState);
+
+      if (newlyUnlockedCh5Batik) {
+        showNotice('Chapter 5 Selesai! Kostum Batik SMADA Ungu terbuka di Menu Kostum & Inventory!');
+      }
+      if (merahUnlocked) {
+        setPendingBatikMerahModal(true);
+      }
 
       if (!alreadyClaimed) {
         setPendingReward({ chapter: chap, rewardItem, specialItem });
@@ -1118,7 +1488,7 @@ export default function App() {
         setQuizOpen(true);
       }
     },
-    [showNotice, syncRankingToServer]
+    [showNotice, syncRankingToServer, applyBatikMerahCheck]
   );
 
   const handleCutsceneFinish = useCallback(() => {
@@ -1130,9 +1500,12 @@ export default function App() {
     if (!pendingReward) return;
     const item = pendingReward.rewardItem;
     const chap = pendingReward.chapter;
+    const isSpecialBonus = Boolean(pendingReward.isSpecialBonus);
     const prev = saveStateRef.current;
     const nextChar = { ...prev.character };
-    if (item.equipId) {
+    if (item.category === 'costume' && item.costumeId) {
+      nextChar.costume = item.costumeId as CostumeStyleId;
+    } else if (item.equipId) {
       if (item.category === 'head') nextChar.head = item.equipId as HeadAccessoryId;
       if (item.category === 'body') nextChar.body = item.equipId as BodyAccessoryId;
       if (item.category === 'neck') nextChar.neck = item.equipId as NeckAccessoryId;
@@ -1140,13 +1513,17 @@ export default function App() {
     const next: SaveState = {
       ...prev,
       character: nextChar,
-      pendingRewardChapter: null,
+      pendingRewardChapter: isSpecialBonus ? prev.pendingRewardChapter ?? null : null,
     };
     saveStateRef.current = next;
     setSaveState(next);
     persistSaveStateNow(next);
 
     setPendingReward(null);
+    if (isSpecialBonus) {
+      showNotice(`"${item.name}" dipasang pada karakter!`);
+      return;
+    }
     if (chap < 5) {
       setChapterIntro((chap + 1) as ChapterId);
     } else {
@@ -1157,13 +1534,18 @@ export default function App() {
   const handleContinueAfterReward = () => {
     if (!pendingReward) return;
     const chap = pendingReward.chapter;
+    const isSpecialBonus = Boolean(pendingReward.isSpecialBonus);
     const prev = saveStateRef.current;
-    const next: SaveState = { ...prev, pendingRewardChapter: null };
+    const next: SaveState = {
+      ...prev,
+      pendingRewardChapter: isSpecialBonus ? prev.pendingRewardChapter ?? null : null,
+    };
     saveStateRef.current = next;
     setSaveState(next);
     persistSaveStateNow(next);
 
     setPendingReward(null);
+    if (isSpecialBonus) return;
     if (chap < 5) {
       setChapterIntro((chap + 1) as ChapterId);
     } else {
@@ -1181,21 +1563,26 @@ export default function App() {
         : elapsedMs
       : (prev.bestCompletionMs ?? null);
 
-    const next: SaveState = {
+    const candidate: SaveState = {
       ...prev,
       quizCompleted: true,
       quizScore: Math.max(prev.quizScore, score),
       quizCorrectCount: Math.max(prev.quizCorrectCount, correctCount),
+      soloCompletions: (prev.soloCompletions ?? 0) + 1,
       totalExp: prev.totalExp + Math.round(score * 3),
       bestCompletionMs: nextBestMs,
       replayMode: false,
       pendingRankingSync: true,
       activeCutsceneCheckpoint: { cutsceneId: 'all_final', lineIndex: 0 },
     };
-    saveStateRef.current = next;
-    setSaveState(next);
-    persistSaveStateNow(next);
-    void syncRankingToServer(next);
+    const { nextState, newlyUnlocked } = applyBatikMerahCheck(candidate);
+    saveStateRef.current = nextState;
+    setSaveState(nextState);
+    persistSaveStateNow(nextState);
+    void syncRankingToServer(nextState);
+    if (newlyUnlocked) {
+      setPendingBatikMerahModal(true);
+    }
 
     setActiveCutsceneInitialLine(0);
     setActiveCutscene('all_final');
@@ -1206,18 +1593,24 @@ export default function App() {
     const nextEmotes = Array.from(
       new Set<EmoteId>([...(prev.unlockedEmotes || STARTER_EMOTE_IDS), 'kpop_groove', 'star_hop'])
     );
-    const next: SaveState = {
+    const candidate: SaveState = {
       ...prev,
       secretTvCompleted: true,
       unlockedEmotes: nextEmotes,
       totalExp: prev.totalExp + 120,
       pendingRankingSync: true,
     };
-    saveStateRef.current = next;
-    setSaveState(next);
-    persistSaveStateNow(next);
-    void syncRankingToServer(next);
-    showNotice('Berhasil! Emote rahasia "Cosmic Idol" & "Starlight Pop" terbuka!');
+    const { nextState, newlyUnlocked } = applyBatikMerahCheck(candidate);
+    saveStateRef.current = nextState;
+    setSaveState(nextState);
+    persistSaveStateNow(nextState);
+    void syncRankingToServer(nextState);
+    if (newlyUnlocked) {
+      setPendingBatikMerahModal(true);
+      showNotice('Emote rahasia terbuka & syarat Batik SMADA Merah terpenuhi!');
+    } else {
+      showNotice('Berhasil! Emote rahasia "Cosmic Idol" & "Starlight Pop" terbuka!');
+    }
   };
 
   const handleResetProgress = () => {
@@ -1244,6 +1637,9 @@ export default function App() {
       unlockedItems: prev.unlockedItems,
       unlockedEmotes: prev.unlockedEmotes || STARTER_EMOTE_IDS,
       secretTvCompleted: Boolean(prev.secretTvCompleted),
+      soloCompletions: prev.soloCompletions ?? 0,
+      multiplayerCompletions: prev.multiplayerCompletions ?? 0,
+      countedMatchIds: prev.countedMatchIds || [],
       metNpcs: prev.metNpcs || [],
       bestCompletionMs: prev.bestCompletionMs ?? null,
       totalExp: prev.totalExp,
@@ -1346,6 +1742,7 @@ export default function App() {
         <CustomizationScreen
           initialConfig={saveState.character}
           unlockedItems={saveState.unlockedItems}
+          saveState={saveState}
           onSave={(char: CharacterConfig) => {
             setSaveState((p) => ({ ...p, character: char }));
             if (mp.roomCode) {
@@ -1412,6 +1809,7 @@ export default function App() {
             activeTheoryBook={activeTheoryBook}
             activeCutscene={activeCutscene}
             activeCutsceneLine={activeCutsceneLine}
+            auliaQuest={saveState.auliaSecretQuest}
             isPaused={
               isPaused ||
               tutorialModal.open ||
@@ -1438,6 +1836,7 @@ export default function App() {
             resetCameraTick={resetCameraTick}
             teleportPos={teleportPos}
             isMultiplayer={gameMode === 'multiplayer'}
+            mpPhase={mp.snapshot?.phase ?? null}
             myPlayerId={mp.playerId}
             myRole={mp.role}
             amAlive={amAlive}
@@ -1453,6 +1852,11 @@ export default function App() {
             onInteractBook={handleOpenBook}
             onInteractVent={handleInteractVent}
             onInteractSecretTv={() => setSecretTvOpen(true)}
+            onInteractCustomizeTerminal={() => {
+              setCustomizeReturnView('playing');
+              setView('customize');
+            }}
+            onInteractAulia={handleInteractAulia}
             onReportStasisPod={(podId) => mp.callMeeting('report', podId)}
             onLockedDoorBlocked={handleLockedDoorBlocked}
           />
@@ -1471,6 +1875,7 @@ export default function App() {
               unlockedEmotes={saveState.unlockedEmotes || STARTER_EMOTE_IDS}
               cameraMode={cameraMode}
               secretTvCompleted={Boolean(saveState.secretTvCompleted)}
+              auliaQuest={saveState.auliaSecretQuest}
               isMultiplayer={gameMode === 'multiplayer'}
               isOnline={mp.isOnline}
               myPlayerId={mp.playerId}
@@ -1479,6 +1884,7 @@ export default function App() {
               maxReconnectAttempts={mp.maxReconnectAttempts}
               mpLastError={mp.lastError}
               mpRole={mp.role}
+              mpPhase={mp.snapshot?.phase ?? null}
               amAlive={amAlive}
               mpSnapshot={mp.snapshot}
               completedMpMissions={mpDoneMissions}
@@ -1487,6 +1893,10 @@ export default function App() {
               onTogglePause={() => setIsPaused((p) => !p)}
               onToggleCameraMode={() => setCameraMode((m) => (m === '360' ? 'topdown' : '360'))}
               onOpenInventory={() => setInventoryOpen(true)}
+              onOpenCustomize={() => {
+                setCustomizeReturnView('playing');
+                setView('customize');
+              }}
               onOpenRanking={() => setShowRankingModal(true)}
               onOpenMusicModal={() => setShowMusicModal(true)}
               onOpenTutorial={() => setTutorialModal({ open: true, startPendingSolo: false })}
@@ -1497,8 +1907,18 @@ export default function App() {
               onInteractBook={handleOpenBook}
               onInteractVent={handleInteractVent}
               onInteractSecretTv={() => setSecretTvOpen(true)}
+              onInteractCustomizeTerminal={() => {
+                setCustomizeReturnView('playing');
+                setView('customize');
+              }}
+              onInteractAulia={handleInteractAulia}
               onCallMeeting={(reason, podId) => mp.callMeeting(reason, podId)}
               onEliminateTarget={(targetId) => mp.eliminatePlayer(targetId)}
+              onToggleReady={() => mp.toggleReady()}
+              onStartGame={() => mp.startGame()}
+              onUpdateHostSettings={(next: HostSettings) => mp.updateHostSettings(next)}
+              onSendLobbyChat={(txt: string) => mp.sendLobbyChat(txt)}
+              onLeaveMpRoom={handleLeaveMpRoom}
               onRetryConnect={() => mp.retryConnect()}
               onExitToSolo={handleExitMultiplayerToSolo}
               onUpdateSettings={(next) => setSaveState((p) => ({ ...p, settings: next }))}
@@ -1540,11 +1960,15 @@ export default function App() {
                 className={`px-8 py-6 rounded-2xl border-2 shadow-2xl text-center max-w-md ${
                   roleRevealBanner === 'impostor'
                     ? 'bg-rose-950/95 border-rose-500 text-rose-100'
-                    : 'bg-sky-950/95 border-sky-400 text-sky-100'
+                    : roleRevealBanner === 'peramal'
+                      ? 'bg-violet-950/95 border-violet-400 text-violet-100'
+                      : 'bg-sky-950/95 border-sky-400 text-sky-100'
                 }`}
               >
                 {roleRevealBanner === 'impostor' ? (
                   <ShieldAlert className="w-12 h-12 text-rose-400 mx-auto mb-2" />
+                ) : roleRevealBanner === 'peramal' ? (
+                  <Sparkles className="w-12 h-12 text-violet-300 mx-auto mb-2" />
                 ) : (
                   <ShieldCheck className="w-12 h-12 text-sky-400 mx-auto mb-2" />
                 )}
@@ -1552,12 +1976,18 @@ export default function App() {
                   PERAN RAHASIA KAMU
                 </p>
                 <h2 className="font-display text-3xl font-extrabold mt-1">
-                  {roleRevealBanner === 'impostor' ? 'IMPOSTOR' : 'CREWMATE'}
+                  {roleRevealBanner === 'impostor'
+                    ? 'IMPOSTOR'
+                    : roleRevealBanner === 'peramal'
+                      ? 'PERAMAL'
+                      : 'CREWMATE'}
                 </h2>
                 <p className="text-xs mt-2 leading-relaxed opacity-90">
                   {roleRevealBanner === 'impostor'
                     ? 'Selesaikan 4 Misi Rahasia Sosiologi atau masukkan Crewmate ke Kapsul Stasis. Gunakan Vent [E] secara diam-diam!'
-                    : 'Jelajahi ruangan, selesaikan misi Global Network, dan identifikasi Impostor saat Emergency Meeting!'}
+                    : roleRevealBanner === 'peramal'
+                      ? 'Selesaikan misi bersama Crewmate dan gunakan kemampuan TERAWANG 1x saat Rapat Darurat untuk mengetahui peran rahasia seorang pemain secara privat!'
+                      : 'Jelajahi ruangan, selesaikan misi Global Network, dan identifikasi Impostor saat Emergency Meeting!'}
                 </p>
               </div>
             </div>
@@ -1735,7 +2165,7 @@ export default function App() {
             </div>
           )}
 
-          {/* Cutscene Dialogue Overlay (Prolog + Two-way Chapter Cutscenes) */}
+          {/* Cutscene Dialogue Overlay (Prolog + Two-way Chapter Cutscenes + Aulia Secret) */}
           {activeCutscene && (
             <CutsceneOverlay
               cutsceneId={activeCutscene}
@@ -1743,18 +2173,6 @@ export default function App() {
               prependedLines={cutscenePrependedLines}
               onLineChange={handleCutsceneLineChange}
               onFinish={handleCutsceneFinish}
-            />
-          )}
-
-          {/* Reward Celebration Modal */}
-          {pendingReward && (
-            <RewardModal
-              chapter={pendingReward.chapter}
-              character={saveState.character}
-              rewardItem={pendingReward.rewardItem}
-              specialItem={pendingReward.specialItem}
-              onEquipAndContinue={handleEquipRewardAndContinue}
-              onContinue={handleContinueAfterReward}
             />
           )}
 
@@ -1772,6 +2190,11 @@ export default function App() {
               meeting={mp.snapshot.meeting}
               players={mp.snapshot.players}
               myId={mp.playerId}
+              myRole={mp.role}
+              myPeramalUsed={mp.snapshot.myPeramalUsed}
+              peramalResult={mp.peramalResult}
+              onInspectRole={(targetId) => mp.inspectRole(targetId)}
+              onClearPeramalResult={() => mp.clearPeramalResult()}
               voiceControls={voiceControls}
               voiceEnabled={saveState.settings.voiceEnabled !== false}
               voiceVolume={saveState.settings.voiceVolume ?? 0.9}
@@ -1828,11 +2251,27 @@ export default function App() {
         />
       )}
 
+      {/* Reward Celebration Modal (Chapters + Secret Batik SMADA Rewards) */}
+      {pendingReward && (
+        <RewardModal
+          chapter={pendingReward.chapter}
+          character={saveState.character}
+          rewardItem={pendingReward.rewardItem}
+          specialItem={pendingReward.specialItem}
+          titleLabel={pendingReward.titleLabel}
+          subtitleLabel={pendingReward.subtitleLabel}
+          continueLabel={pendingReward.continueLabel}
+          onEquipAndContinue={handleEquipRewardAndContinue}
+          onContinue={handleContinueAfterReward}
+        />
+      )}
+
       {/* Global Inventory Modal */}
       {inventoryOpen && (
         <InventoryModal
           character={saveState.character}
           unlockedItems={saveState.unlockedItems}
+          saveState={saveState}
           onEquipChange={(nextChar) =>
             setSaveState((prev) => ({ ...prev, character: nextChar }))
           }

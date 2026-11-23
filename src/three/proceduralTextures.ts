@@ -34,14 +34,14 @@ export function createMetallicFloorTexture(maxAniso = 4): THREE.CanvasTexture {
   const ctx = canvas.getContext('2d')!;
 
   const grad = ctx.createLinearGradient(0, 0, 512, 512);
-  grad.addColorStop(0, '#142038');
-  grad.addColorStop(0.5, '#0e172a');
-  grad.addColorStop(1, '#172542');
+  grad.addColorStop(0, '#1e2430');
+  grad.addColorStop(0.5, '#151a23');
+  grad.addColorStop(1, '#232a38');
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, 512, 512);
 
   // Main deck plates
-  ctx.strokeStyle = 'rgba(56, 189, 248, 0.24)';
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.24)';
   ctx.lineWidth = 3;
   for (let i = 0; i <= 512; i += 128) {
     ctx.beginPath();
@@ -55,26 +55,26 @@ export function createMetallicFloorTexture(maxAniso = 4): THREE.CanvasTexture {
   }
 
   // Anti-slip floor tread & corner bolts
-  ctx.strokeStyle = 'rgba(148, 163, 184, 0.12)';
+  ctx.strokeStyle = 'rgba(203, 213, 225, 0.14)';
   ctx.lineWidth = 1.5;
   for (let x = 0; x < 512; x += 128) {
     for (let y = 0; y < 512; y += 128) {
       ctx.strokeRect(x + 10, y + 10, 108, 108);
-      ctx.fillStyle = 'rgba(56, 189, 248, 0.4)';
+      ctx.fillStyle = 'rgba(226, 232, 240, 0.35)';
       ctx.fillRect(x + 14, y + 14, 4, 4);
       ctx.fillRect(x + 110, y + 14, 4, 4);
       ctx.fillRect(x + 14, y + 110, 4, 4);
       ctx.fillRect(x + 110, y + 110, 4, 4);
 
       // Subtle diagonal grip lines
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
       for (let d = 24; d < 104; d += 16) {
         ctx.beginPath();
         ctx.moveTo(x + d, y + 24);
         ctx.lineTo(x + d - 10, y + 34);
         ctx.stroke();
       }
-      ctx.strokeStyle = 'rgba(148, 163, 184, 0.12)';
+      ctx.strokeStyle = 'rgba(203, 213, 225, 0.14)';
     }
   }
 
@@ -92,20 +92,20 @@ export function createWallPanelTexture(maxAniso = 4): THREE.CanvasTexture {
   canvas.height = 512;
   const ctx = canvas.getContext('2d')!;
 
-  ctx.fillStyle = '#152038';
+  ctx.fillStyle = '#222834';
   ctx.fillRect(0, 0, 512, 512);
 
   // Structural header & kickplate
-  ctx.fillStyle = '#203052';
+  ctx.fillStyle = '#2f3747';
   ctx.fillRect(0, 0, 512, 72);
   ctx.fillRect(0, 430, 512, 82);
 
   // Hazard trim near floor
-  ctx.fillStyle = '#334155';
+  ctx.fillStyle = '#475569';
   ctx.fillRect(0, 422, 512, 8);
 
   // Panel vertical ribs
-  ctx.strokeStyle = '#090e1c';
+  ctx.strokeStyle = '#11151d';
   ctx.lineWidth = 5;
   for (let x = 0; x <= 512; x += 128) {
     ctx.beginPath();
@@ -114,17 +114,17 @@ export function createWallPanelTexture(maxAniso = 4): THREE.CanvasTexture {
     ctx.stroke();
   }
 
-  // Tech conduit & indicator bars
-  ctx.fillStyle = 'rgba(56, 189, 248, 0.42)';
+  // Tech conduit & neutral aerospace indicator bars
+  ctx.fillStyle = 'rgba(148, 163, 184, 0.4)';
   ctx.fillRect(16, 250, 480, 6);
-  ctx.fillStyle = 'rgba(99, 102, 241, 0.3)';
+  ctx.fillStyle = 'rgba(100, 116, 139, 0.35)';
   for (let x = 24; x < 512; x += 128) {
     ctx.fillRect(x, 108, 80, 14);
-    ctx.fillStyle = 'rgba(16, 185, 129, 0.45)';
+    ctx.fillStyle = 'rgba(16, 185, 129, 0.5)';
     ctx.fillRect(x + 8, 134, 14, 6);
-    ctx.fillStyle = 'rgba(56, 189, 248, 0.35)';
+    ctx.fillStyle = 'rgba(226, 232, 240, 0.38)';
     ctx.fillRect(x + 28, 134, 42, 6);
-    ctx.fillStyle = 'rgba(99, 102, 241, 0.3)';
+    ctx.fillStyle = 'rgba(100, 116, 139, 0.35)';
   }
 
   const tex = new THREE.CanvasTexture(canvas);

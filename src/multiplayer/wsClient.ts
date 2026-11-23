@@ -5,7 +5,10 @@ import {
   ConnectionStatus,
   EliminationEvent,
   EmoteId,
+  HostSettings,
+  LobbyChatMessage,
   MultiplayerRole,
+  PeramalInspectResult,
   RoomSnapshot,
   VoicePeerState,
 } from '../types/game';
@@ -23,6 +26,7 @@ export interface MultiplayerClientState {
   roomCode: string | null;
   role: MultiplayerRole | null;
   snapshot: RoomSnapshot | null;
+  peramalResult: PeramalInspectResult | null;
   lastError: string | null;
   ventTeleportTick: { x: number; z: number; tick: number } | null;
   eliminatedNotice: string | null;
@@ -58,6 +62,7 @@ export function useMultiplayerClient(
     roomCode: null,
     role: null,
     snapshot: null,
+    peramalResult: null,
     lastError: null,
     ventTeleportTick: null,
     eliminatedNotice: null,
@@ -283,7 +288,7 @@ export function useMultiplayerClient(
 
         if (type === 'role_assigned') {
           const role = msg.role as MultiplayerRole;
-          setState((s) => ({ ...s, role, eliminatedNotice: null }));
+          setState((s) => ({ ...s, role, peramalResult: null, eliminatedNotice: null }));
           return;
         }
 
@@ -293,7 +298,34 @@ export function useMultiplayerClient(
             ...s,
             snapshot,
             role: snapshot.phase === 'lobby' ? null : s.role,
+            peramalResult: snapshot.phase === 'meeting' ? s.peramalResult : null,
           }));
+          return;
+        }
+
+        if (type === 'lobby_chat_message') {
+          const chatMsg = msg.message as LobbyChatMessage | undefined;
+          if (!chatMsg || !chatMsg.id) return;
+          setState((s) => {
+            if (!s.snapshot) return s;
+            if (s.snapshot.lobbyMessages.some((m) => m.id === chatMsg.id)) return s;
+            const nextMsgs = [...s.snapshot.lobbyMessages, chatMsg].slice(-50);
+            return {
+              ...s,
+              snapshot: {
+                ...s.snapshot,
+                lobbyMessages: nextMsgs,
+              },
+            };
+          });
+          return;
+        }
+
+        if (type === 'peramal_result') {
+          const result = msg.result as PeramalInspectResult | undefined;
+          if (result && result.targetId) {
+            setState((s) => ({ ...s, peramalResult: result }));
+          }
           return;
         }
 
@@ -522,6 +554,7 @@ export function useMultiplayerClient(
       roomCode: null,
       role: null,
       snapshot: null,
+      peramalResult: null,
       lastError: null,
       ventTeleportTick: null,
       eliminatedNotice: null,
@@ -589,6 +622,7 @@ export function useMultiplayerClient(
       playerId: null,
       role: null,
       snapshot: null,
+      peramalResult: null,
       lastError: null,
       eliminatedNotice: null,
     }));
@@ -600,6 +634,10 @@ export function useMultiplayerClient(
 
   const clearEliminatedNotice = useCallback(() => {
     setState((s) => ({ ...s, eliminatedNotice: null }));
+  }, []);
+
+  const clearPeramalResult = useCallback(() => {
+    setState((s) => ({ ...s, peramalResult: null }));
   }, []);
 
   const sendVoiceState = useCallback(
@@ -624,8 +662,11 @@ export function useMultiplayerClient(
     leaveRoom,
     clearError,
     clearEliminatedNotice,
+    clearPeramalResult,
     toggleReady: () => send({ type: 'toggle_ready' }),
     updateCharacter: (character: CharacterConfig) => send({ type: 'update_character', character }),
+    updateHostSettings: (settings: HostSettings) => send({ type: 'update_host_settings', settings }),
+    sendLobbyChat: (text: string) => send({ type: 'lobby_chat', text }),
     startGame: () => send({ type: 'start_game' }),
     returnToLobby: () => send({ type: 'return_to_lobby' }),
     sendMove: (x: number, y: number, z: number, yaw: number, animState: CharacterAnimState, activeEmote?: EmoteId | null) =>
@@ -635,6 +676,7 @@ export function useMultiplayerClient(
     useVent: (fromVentId: string, toVentId: string) =>
       send({ type: 'use_vent', fromVentId, toVentId }),
     eliminatePlayer: (targetId: string) => send({ type: 'eliminate_player', targetId }),
+    inspectRole: (targetId: string) => send({ type: 'inspect_role', targetId }),
     completeMission: (missionId: string, score: number) =>
       send({ type: 'complete_mission', missionId, score }),
     completeImpostorChallenge: (challengeId: string, score: number) =>

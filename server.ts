@@ -8,9 +8,12 @@ import type {
   CharacterAnimState,
   CharacterConfig,
   EmoteId,
+  HostSettings,
+  LobbyChatMessage,
   MatchResultSummary,
   MeetingChatMessage,
   MeetingState,
+  MissionId,
   MultiplayerPhase,
   MultiplayerRole,
   MusicSearchResult,
@@ -21,6 +24,21 @@ import type {
   StasisPodState,
   VoicePeerState,
 } from './src/types/game.js';
+
+const MAX_PLAYERS = 15;
+const VALID_MISSIONS = new Set<MissionId>([
+  'ch1_m1',
+  'ch1_m2',
+  'ch2_m1',
+  'ch2_m2',
+  'ch3_m1',
+  'ch3_m2',
+  'ch4_m1',
+  'ch4_m2',
+  'ch5_m1',
+  'ch5_m2',
+]);
+const ALLOWED_VOTING_DURATIONS = [30, 45, 60, 90];
 
 const VALID_EMOTES = new Set<EmoteId>([
   'wave',
@@ -109,6 +127,8 @@ interface ServerPlayer {
   activeEmote: EmoteId | null;
   inVent: boolean;
   role: MultiplayerRole;
+  peramalUsed: boolean;
+  lastChatAt?: number;
   completedMissions: Set<string>;
   completedImpostorChallenges: Set<string>;
   eduScore: number;
@@ -118,23 +138,45 @@ interface ServerPlayer {
 }
 
 /**
- * Deterministic Central Lobby spawn ring around the Central Core (radius 3.25m).
- * Keeps >= 1.24m clearance from lobby_core, >= 1.35m from Central Terminal, >= 1.7m from perimeter furniture,
- * and >= 2.04m spacing between players for up to 10 simultaneous astronauts.
+ * Deterministic Central Lobby spawn ring around the Central Core.
+ * Splits smoothly into 2 concentric rings when total > 8 so up to 15 astronauts spawn clearly without overlapping.
  */
 function getCentralLobbySpawn(index: number, total: number): { x: number; z: number; yaw: number } {
   const count = Math.max(1, total);
-  const angle = (index / count) * Math.PI * 2;
-  const radius = 3.25;
+  if (count <= 8) {
+    const angle = (index / count) * Math.PI * 2;
+    const radius = 3.2;
+    const x = Number((Math.cos(angle) * radius).toFixed(3));
+    const z = Number((Math.sin(angle) * radius).toFixed(3));
+    return { x, z, yaw: Math.atan2(-x, -z) };
+  }
+  const innerCount = 8;
+  const isInner = index < innerCount;
+  const ringCount = isInner ? innerCount : count - innerCount;
+  const ringIdx = isInner ? index : index - innerCount;
+  const radius = isInner ? 2.8 : 4.15;
+  const angleOffset = isInner ? 0 : Math.PI / Math.max(1, ringCount);
+  const angle = (ringIdx / ringCount) * Math.PI * 2 + angleOffset;
   const x = Number((Math.cos(angle) * radius).toFixed(3));
   const z = Number((Math.sin(angle) * radius).toFixed(3));
   const yaw = Math.atan2(-x, -z);
   return { x, z, yaw };
 }
 
+function sanitizeHostSettings(raw?: Partial<HostSettings>): HostSettings {
+  const impRaw = Number(raw?.impostorCount);
+  const impostorCount = Number.isFinite(impRaw) ? Math.max(1, Math.min(3, Math.round(impRaw))) : 1;
+  const voteRaw = Number(raw?.votingDurationSec);
+  const votingDurationSec = ALLOWED_VOTING_DURATIONS.includes(voteRaw) ? voteRaw : 45;
+  return { impostorCount, votingDurationSec };
+}
+
 interface ServerRoom {
   code: string;
+  matchId: string;
   phase: MultiplayerPhase;
+  hostSettings: HostSettings;
+  lobbyMessages: LobbyChatMessage[];
   players: Map<string, ServerPlayer>;
   stasisPods: StasisPodState[];
   crewMissionTotal: number;
@@ -223,7 +265,7 @@ function buildSnapshotForPlayer(room: ServerRoom, recipient: ServerPlayer): Room
   let crewDone = 0;
   let impDone = 0;
   allPlayers.forEach((p) => {
-    if (p.role === 'crewmate') crewDone += p.completedMissions.size;
+    if (p.role !== 'impostor') crewDone += p.completedMissions.size;
     if (p.role === 'impostor') impDone += p.completedImpostorChallenges.size;
   });
 
@@ -250,12 +292,18 @@ function buildSnapshotForPlayer(room: ServerRoom, recipient: ServerPlayer): Room
   return {
     roomCode: room.code,
     phase: room.phase,
+    maxPlayers: MAX_PLAYERS,
+    hostSettings: room.hostSettings,
+    peramalCount: allPlayers.filter((p) => p.role === 'peramal').length,
     players: publicPlayers,
     stasisPods: room.stasisPods,
     crewMissionTotal: room.crewMissionTotal,
     crewMissionDone: Math.min(crewDone, room.crewMissionTotal),
     impostorObjectiveTotal: room.impostorObjectiveTotal,
     impostorObjectiveDone: Math.min(impDone, room.impostorObjectiveTotal),
+    myCompletedMissions: Array.from(recipient.completedMissions) as MissionId[],
+    myPeramalUsed: recipient.peramalUsed,
+    lobbyMessages: room.lobbyMessages,
     meeting: room.meeting,
     matchResult: room.matchResult,
     killCooldownEndsAt: recipient.role === 'impostor' && room.phase === 'playing' ? room.killCooldownEndsAt : 0,
@@ -288,19 +336,22 @@ function endMatch(room: ServerRoom, winner: 'crewmate' | 'impostor', reason: str
   room.meeting = null;
 
   const allPlayers = Array.from(room.players.values());
-  const impostor = allPlayers.find((p) => p.role === 'impostor') || allPlayers[0];
+  const impostors = allPlayers.filter((p) => p.role === 'impostor');
+  const firstImp = impostors[0] || allPlayers[0];
   let crewDone = 0;
   let impDone = 0;
   allPlayers.forEach((p) => {
-    if (p.role === 'crewmate') crewDone += p.completedMissions.size;
+    if (p.role !== 'impostor') crewDone += p.completedMissions.size;
     if (p.role === 'impostor') impDone += p.completedImpostorChallenges.size;
   });
 
   room.matchResult = {
+    matchId: room.matchId,
     winner,
     reason,
-    impostorId: impostor?.id || '',
-    impostorName: impostor?.name || 'Unknown',
+    impostorId: firstImp?.id || '',
+    impostorName: firstImp?.name || 'Unknown',
+    impostorNames: impostors.map((p) => p.name),
     crewMissionDone: Math.min(crewDone, room.crewMissionTotal),
     crewMissionTotal: room.crewMissionTotal,
     impostorObjectiveDone: Math.min(impDone, room.impostorObjectiveTotal),
@@ -321,14 +372,14 @@ function endMatch(room: ServerRoom, winner: 'crewmate' | 'impostor', reason: str
 function checkWinConditions(room: ServerRoom): boolean {
   if (room.phase !== 'playing' && room.phase !== 'meeting') return false;
   const players = Array.from(room.players.values());
-  const aliveImpostor = players.find((p) => p.role === 'impostor' && p.alive);
-  if (!aliveImpostor) {
-    endMatch(room, 'crewmate', 'Impostor telah diejeksi dari stasiun GLOBALUS!');
+  const aliveImpostors = players.filter((p) => p.role === 'impostor' && p.alive);
+  if (aliveImpostors.length === 0) {
+    endMatch(room, 'crewmate', 'Seluruh Impostor telah diejeksi dari stasiun GLOBALUS!');
     return true;
   }
 
-  const aliveCrew = players.filter((p) => p.role === 'crewmate' && p.alive);
-  if (aliveCrew.length <= 1 && players.length >= 2) {
+  const aliveCrewSide = players.filter((p) => p.role !== 'impostor' && p.alive);
+  if ((aliveImpostors.length > aliveCrewSide.length || aliveCrewSide.length === 0) && players.length >= 2) {
     endMatch(room, 'impostor', 'Jumlah Crewmate aktif tidak lagi cukup untuk menghentikan Impostor!');
     return true;
   }
@@ -336,7 +387,7 @@ function checkWinConditions(room: ServerRoom): boolean {
   let crewDone = 0;
   let impDone = 0;
   players.forEach((p) => {
-    if (p.role === 'crewmate') crewDone += p.completedMissions.size;
+    if (p.role !== 'impostor') crewDone += p.completedMissions.size;
     if (p.role === 'impostor') impDone += p.completedImpostorChallenges.size;
   });
 
@@ -483,6 +534,9 @@ const NON_DEFAULT_REWARDS = new Set<string>([
   'medalion_teknologi',
   'medalion_ekonomi',
   'medalion_skeptis',
+  'batik_smada_biru',
+  'batik_smada_ungu',
+  'batik_smada_merah',
 ]);
 
 async function loadRankingStore(): Promise<RankingEntry[]> {
@@ -666,8 +720,115 @@ async function startServer() {
     }
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 5000);
+    const timer = setTimeout(() => controller.abort(), 7500);
     try {
+      const fullTracks: MusicSearchResult[] = [];
+      const seenKeys = new Set<string>();
+
+      // 1. Official Audius Public Streaming API (full-length tracks with stream URLs)
+      try {
+        const audiusUrl = `https://api.audius.co/v1/tracks/search?query=${encodeURIComponent(q)}&app_name=GLOBALUS`;
+        const audiusRes = await fetch(audiusUrl, {
+          signal: controller.signal,
+          headers: { Accept: 'application/json' },
+        });
+        if (audiusRes.ok) {
+          const payload = (await audiusRes.json()) as {
+            data?: Array<{
+              id?: string;
+              title?: string;
+              duration?: number;
+              is_streamable?: boolean;
+              access?: { stream?: boolean };
+              user?: { name?: string };
+              genre?: string;
+              artwork?: { '150x150'?: string; '480x480'?: string };
+            }>;
+          };
+          const list = Array.isArray(payload.data) ? payload.data : [];
+          for (const t of list) {
+            if (!t.id || t.is_streamable === false || t.access?.stream === false) continue;
+            const durSec = Number(t.duration || 0);
+            if (!Number.isFinite(durSec) || durSec < 20 || durSec > 1200) continue;
+            const title = String(t.title || 'Tanpa Judul');
+            const artist = String(t.user?.name || 'Artis Audius');
+            const dedupKey = `${title.toLowerCase()}::${artist.toLowerCase()}`;
+            if (seenKeys.has(dedupKey)) continue;
+            seenKeys.add(dedupKey);
+            fullTracks.push({
+              id: `audius_${t.id}`,
+              title,
+              artist,
+              album: t.genre ? String(t.genre) : 'Audius Full Stream',
+              previewUrl: `https://api.audius.co/v1/tracks/${encodeURIComponent(String(t.id))}/stream?app_name=GLOBALUS`,
+              artworkUrl: t.artwork?.['480x480'] || t.artwork?.['150x150'] || undefined,
+              durationMs: Math.round(durSec * 1000),
+              isPreview: false,
+              source: 'audius',
+            });
+            if (fullTracks.length >= 12) break;
+          }
+        }
+      } catch {
+        // Proceed to optional Jamendo / fallback
+      }
+
+      // 2. Optional Jamendo Creative Commons Full-Track API (when JAMENDO_CLIENT_ID env is set on server)
+      const jamendoId = process.env.JAMENDO_CLIENT_ID?.trim();
+      if (jamendoId && fullTracks.length < 12) {
+        try {
+          const jamUrl = `https://api.jamendo.com/v3.0/tracks/?client_id=${encodeURIComponent(
+            jamendoId
+          )}&format=json&limit=8&search=${encodeURIComponent(q)}&audioformat=mp32`;
+          const jamRes = await fetch(jamUrl, {
+            signal: controller.signal,
+            headers: { Accept: 'application/json' },
+          });
+          if (jamRes.ok) {
+            const jamData = (await jamRes.json()) as {
+              results?: Array<{
+                id?: string;
+                name?: string;
+                artist_name?: string;
+                album_name?: string;
+                audio?: string;
+                image?: string;
+                duration?: number;
+              }>;
+            };
+            const list = Array.isArray(jamData.results) ? jamData.results : [];
+            for (const r of list) {
+              if (!r.audio || !r.audio.startsWith('http')) continue;
+              const title = String(r.name || 'Tanpa Judul');
+              const artist = String(r.artist_name || 'Artis Jamendo');
+              const dedupKey = `${title.toLowerCase()}::${artist.toLowerCase()}`;
+              if (seenKeys.has(dedupKey)) continue;
+              seenKeys.add(dedupKey);
+              fullTracks.push({
+                id: `jamendo_${r.id || fullTracks.length}`,
+                title,
+                artist,
+                album: r.album_name ? String(r.album_name) : 'Jamendo Full Song',
+                previewUrl: String(r.audio).replace(/^http:\/\//i, 'https://'),
+                artworkUrl: r.image ? String(r.image).replace(/^http:\/\//i, 'https://') : undefined,
+                durationMs: Math.max(20000, Math.round(Number(r.duration || 180) * 1000)),
+                isPreview: false,
+                source: 'jamendo',
+              });
+              if (fullTracks.length >= 12) break;
+            }
+          }
+        } catch {
+          // Proceed cleanly
+        }
+      }
+
+      if (fullTracks.length > 0) {
+        res.json({ ok: true, results: fullTracks });
+        return;
+      }
+
+      // 3. Fallback to iTunes Search API (explicitly labeled isPreview: true, ~30s preview)
       const url = `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=music&entity=song&limit=10`;
       const upstream = await fetch(url, {
         signal: controller.signal,
@@ -719,8 +880,61 @@ async function startServer() {
   if (!IS_PROD) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
-      server: { middlewareMode: true, hmr: false },
+      server: { middlewareMode: true, hmr: false, ws: false },
       appType: 'spa',
+    });
+    // Prevent Vite 8's default @vite/client from attempting an HMR WebSocket connection on port 24678
+    // when HMR is intentionally disabled (which causes an uncaught promise rejection at @vite/client:234).
+    app.get('/@vite/client', (_req, res) => {
+      res.type('application/javascript; charset=utf-8').send(`
+const sheetsMap = new Map();
+if (typeof document !== 'undefined') {
+  document.querySelectorAll('style[data-vite-dev-id]').forEach((el) => {
+    const id = el.getAttribute('data-vite-dev-id');
+    if (id) sheetsMap.set(id, el);
+  });
+}
+export function updateStyle(id, content) {
+  if (typeof document === 'undefined') return;
+  let style = sheetsMap.get(id);
+  if (!style) {
+    style = document.createElement('style');
+    style.setAttribute('type', 'text/css');
+    style.setAttribute('data-vite-dev-id', id);
+    style.textContent = content;
+    document.head.appendChild(style);
+  } else if (style.textContent !== content) {
+    style.textContent = content;
+  }
+  sheetsMap.set(id, style);
+}
+export function removeStyle(id) {
+  const style = sheetsMap.get(id);
+  if (style && style.parentNode) style.parentNode.removeChild(style);
+  sheetsMap.delete(id);
+}
+export function createHotContext() {
+  return {
+    data: {},
+    accept() {},
+    acceptExports() {},
+    dispose() {},
+    prune() {},
+    invalidate() {},
+    decline() {},
+    on() {},
+    off() {},
+    send() {},
+  };
+}
+export function injectQuery(url, queryToInject) {
+  if (url[0] !== '.' && url[0] !== '/') return url;
+  const pathname = url.replace(/[?#].*$/, '');
+  const { search, hash } = new URL(url, 'http://vite.dev');
+  return pathname + '?' + queryToInject + (search ? '&' + search.slice(1) : '') + (hash || '');
+}
+export class ErrorOverlay extends (typeof HTMLElement !== 'undefined' ? HTMLElement : Object) {}
+`);
     });
     app.use(vite.middlewares);
   } else {
@@ -794,6 +1008,7 @@ async function startServer() {
         const reconnectToken = generateId(16);
         const char = sanitizeCharacter(msg.character as Partial<CharacterConfig>);
 
+        const hostSlot = getCentralLobbySpawn(0, 1);
         const player: ServerPlayer = {
           id: playerId,
           reconnectToken,
@@ -803,14 +1018,15 @@ async function startServer() {
           isHost: true,
           connected: true,
           alive: true,
-          x: 0,
+          x: hostSlot.x,
           y: 0,
-          z: 3.2,
-          yaw: Math.PI,
+          z: hostSlot.z,
+          yaw: hostSlot.yaw,
           animState: 'idle',
           activeEmote: null,
           inVent: false,
           role: 'crewmate',
+          peramalUsed: false,
           completedMissions: new Set(),
           completedImpostorChallenges: new Set(),
           eduScore: 0,
@@ -821,7 +1037,10 @@ async function startServer() {
 
         const room: ServerRoom = {
           code,
+          matchId: generateId(10),
           phase: 'lobby',
+          hostSettings: { impostorCount: 1, votingDurationSec: 45 },
+          lobbyMessages: [],
           players: new Map([[playerId, player]]),
           stasisPods: [],
           crewMissionTotal: 6,
@@ -900,8 +1119,8 @@ async function startServer() {
           sendJson(ws, { type: 'error', message: 'Permainan di room ini sedang berlangsung.' });
           return;
         }
-        if (room.players.size >= 10) {
-          sendJson(ws, { type: 'error', message: 'Room sudah penuh (maksimal 10 pemain).' });
+        if (room.players.size >= MAX_PLAYERS) {
+          sendJson(ws, { type: 'error', message: `Room sudah penuh (maksimal ${MAX_PLAYERS} pemain).` });
           return;
         }
 
@@ -926,6 +1145,7 @@ async function startServer() {
           activeEmote: null,
           inVent: false,
           role: 'crewmate',
+          peramalUsed: false,
           completedMissions: new Set(),
           completedImpostorChallenges: new Set(),
           eduScore: 0,
@@ -977,6 +1197,42 @@ async function startServer() {
         return;
       }
 
+      if (type === 'update_host_settings') {
+        if (room.phase !== 'lobby' || !player.isHost) return;
+        room.hostSettings = sanitizeHostSettings(msg.settings as Partial<HostSettings>);
+        broadcastRoomState(room);
+        return;
+      }
+
+      if (type === 'lobby_chat') {
+        if (room.phase !== 'lobby') return;
+        const now = Date.now();
+        if (player.lastChatAt && now - player.lastChatAt < 450) return;
+        const text = String(msg.text || '').trim().slice(0, 200);
+        if (!text) return;
+        player.lastChatAt = now;
+
+        const chatMsg: LobbyChatMessage = {
+          id: generateId(8),
+          senderId: player.id,
+          senderName: player.name,
+          senderColor: getColorHex(player.character.color),
+          text,
+          timestamp: now,
+        };
+        room.lobbyMessages.push(chatMsg);
+        if (room.lobbyMessages.length > 50) {
+          room.lobbyMessages = room.lobbyMessages.slice(-50);
+        }
+        const payload = JSON.stringify({ type: 'lobby_chat_message', message: chatMsg });
+        room.players.forEach((other) => {
+          if (other.ws && other.ws.readyState === WebSocket.OPEN) {
+            other.ws.send(payload);
+          }
+        });
+        return;
+      }
+
       if (type === 'start_game') {
         if (room.phase !== 'lobby' || !player.isHost) return;
         const all = Array.from(room.players.values());
@@ -990,20 +1246,36 @@ async function startServer() {
           return;
         }
 
-        const impIndex = Math.floor(Math.random() * all.length);
-        const crewCount = all.length - 1;
+        const shuffledIndices = all.map((_, i) => i);
+        for (let i = shuffledIndices.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [shuffledIndices[i], shuffledIndices[j]] = [shuffledIndices[j], shuffledIndices[i]];
+        }
 
+        const maxAllowedImp = all.length >= 7 ? 3 : all.length >= 4 ? 2 : 1;
+        const impCount = Math.max(1, Math.min(room.hostSettings.impostorCount, maxAllowedImp, all.length - 1));
+        const impostorIndices = new Set(shuffledIndices.slice(0, impCount));
+        const nonImpIndices = shuffledIndices.slice(impCount);
+        const peramalIndex = all.length >= 11 && nonImpIndices.length > 0 ? nonImpIndices[0] : -1;
+        const crewSideCount = all.length - impCount;
+
+        room.matchId = generateId(12);
         room.phase = 'playing';
         room.stasisPods = [];
         room.meeting = null;
         room.matchResult = null;
-        room.crewMissionTotal = Math.min(9, Math.max(3, crewCount * 3));
+        room.crewMissionTotal = Math.min(18, Math.max(3, crewSideCount * 3));
         room.impostorObjectiveTotal = 4;
         room.killCooldownEndsAt = Date.now() + 18000;
         room.emergencyCooldownEndsAt = Date.now() + 15000;
 
         all.forEach((p, idx) => {
-          p.role = idx === impIndex ? 'impostor' : 'crewmate';
+          p.role = impostorIndices.has(idx)
+            ? 'impostor'
+            : idx === peramalIndex
+              ? 'peramal'
+              : 'crewmate';
+          p.peramalUsed = false;
           p.alive = true;
           p.inVent = false;
           p.activeEmote = null;
@@ -1036,25 +1308,29 @@ async function startServer() {
         room.stasisPods = [];
         room.meeting = null;
         room.matchResult = null;
-        room.players.forEach((p) => {
+        const all = Array.from(room.players.values());
+        all.forEach((p, idx) => {
           p.alive = true;
           p.inVent = false;
           p.activeEmote = null;
           p.ready = p.isHost;
           p.role = 'crewmate';
+          p.peramalUsed = false;
           p.completedMissions.clear();
           p.completedImpostorChallenges.clear();
           p.eduScore = 0;
-          p.x = 0;
+          const slot = getCentralLobbySpawn(idx, all.length);
+          p.x = slot.x;
           p.y = 0;
-          p.z = 3.2;
+          p.z = slot.z;
+          p.yaw = slot.yaw;
         });
         broadcastRoomState(room);
         return;
       }
 
       if (type === 'player_move') {
-        if (room.phase !== 'playing') return;
+        if (room.phase !== 'lobby' && room.phase !== 'playing') return;
         const x = Number(msg.x);
         const y = Number.isFinite(Number(msg.y)) ? Number(msg.y) : 0;
         const z = Number(msg.z);
@@ -1062,9 +1338,14 @@ async function startServer() {
         const animState = String(msg.animState || 'idle') as CharacterAnimState;
         if (!Number.isFinite(x) || !Number.isFinite(z) || !Number.isFinite(yaw)) return;
 
-        player.x = Math.max(-45, Math.min(45, x));
+        if (room.phase === 'lobby') {
+          player.x = Math.max(-8.4, Math.min(8.4, x));
+          player.z = Math.max(-7.4, Math.min(7.4, z));
+        } else {
+          player.x = Math.max(-45, Math.min(45, x));
+          player.z = Math.max(-67, Math.min(23, z));
+        }
         player.y = Math.max(0, Math.min(2.2, y));
-        player.z = Math.max(-67, Math.min(23, z));
         player.yaw = yaw;
         player.animState = animState;
         if (msg.activeEmote === null) {
@@ -1093,7 +1374,7 @@ async function startServer() {
       }
 
       if (type === 'player_emote') {
-        if (room.phase !== 'playing') return;
+        if (room.phase !== 'lobby' && room.phase !== 'playing') return;
         const rawEmote = msg.emoteId;
         const emoteId =
           typeof rawEmote === 'string' && VALID_EMOTES.has(rawEmote as EmoteId)
@@ -1189,7 +1470,7 @@ async function startServer() {
 
         const targetId = String(msg.targetId || '');
         const target = room.players.get(targetId);
-        if (!target || !target.alive || target.role !== 'crewmate') return;
+        if (!target || !target.alive || target.role === 'impostor') return;
 
         const dist = Math.hypot(player.x - target.x, player.z - target.z);
         if (dist > 4.2) return;
@@ -1242,10 +1523,10 @@ async function startServer() {
       }
 
       if (type === 'complete_mission') {
-        if (room.phase !== 'playing' || player.role !== 'crewmate') return;
-        const missionId = String(msg.missionId || '');
+        if (room.phase !== 'playing' || (player.role !== 'crewmate' && player.role !== 'peramal')) return;
+        const missionId = String(msg.missionId || '') as MissionId;
         const score = Math.max(0, Math.min(100, Number(msg.score) || 80));
-        if (!missionId) return;
+        if (!VALID_MISSIONS.has(missionId)) return;
 
         if (!player.completedMissions.has(missionId)) {
           player.completedMissions.add(missionId);
@@ -1315,21 +1596,53 @@ async function startServer() {
           isSystem: true,
         };
 
+        const voteMs = (room.hostSettings.votingDurationSec || 45) * 1000;
         room.meeting = {
           reason,
           callerName: player.name,
           subjectName,
           locationName,
-          endsAt: Date.now() + 45000,
+          endsAt: Date.now() + voteMs,
           votes: {},
           messages: [sysMsg],
         };
 
         room.meetingTimer = setTimeout(() => {
           resolveMeetingVotes(room);
-        }, 45000);
+        }, voteMs);
 
         broadcastRoomState(room);
+        return;
+      }
+
+      if (type === 'inspect_role') {
+        if (
+          room.phase !== 'meeting' ||
+          player.role !== 'peramal' ||
+          !player.alive ||
+          player.peramalUsed ||
+          !room.meeting ||
+          room.meeting.resultBanner
+        ) {
+          return;
+        }
+        const targetId = String(msg.targetId || '');
+        const target = room.players.get(targetId);
+        if (!target || target.id === player.id) return;
+
+        player.peramalUsed = true;
+        sendJson(ws, {
+          type: 'peramal_result',
+          result: {
+            targetId: target.id,
+            targetName: target.name,
+            revealedRole: target.role,
+          },
+        });
+        sendJson(ws, {
+          type: 'room_state',
+          snapshot: buildSnapshotForPlayer(room, player),
+        });
         return;
       }
 

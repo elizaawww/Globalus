@@ -55,12 +55,37 @@ export interface SecretTvObject {
   beacon: THREE.Mesh;
 }
 
+export interface CustomizeTerminalObject {
+  position: THREE.Vector3;
+  group: THREE.Group;
+  beacon: THREE.Mesh;
+  outlineGroup: THREE.Group;
+  hitMesh: THREE.Mesh;
+}
+
+export interface AuliaQuest3DObjects {
+  cabinetGroup: THREE.Group;
+  boxGroup: THREE.Group;
+  boxOutlineGroup: THREE.Group;
+  boxHitMesh: THREE.Mesh;
+  boxPos: THREE.Vector3;
+  ladderGroup: THREE.Group;
+  ladderOutlineGroup: THREE.Group;
+  ladderHitMesh: THREE.Mesh;
+  ladderRestPos: THREE.Vector3;
+  ladderPlacedPos: THREE.Vector3;
+  setLadderPlaced: (placed: boolean) => void;
+  setBoxVisible: (visible: boolean) => void;
+}
+
 export interface FurnitureBuildResult {
   vents: VentObject[];
   theoryBooks: TheoryBookObject[];
   spinners: SpinnerEntry[];
   roomGroups: RoomGroupEntry[];
   secretTv: SecretTvObject;
+  customizeTerminal: CustomizeTerminalObject;
+  auliaQuestObjs: AuliaQuest3DObjects;
 }
 
 export function populateStationFurniture(
@@ -142,10 +167,10 @@ export function populateStationFurniture(
     return m;
   };
 
-  // Shared PBR Materials
-  const metalDark = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.36, metalness: 0.74 });
-  const metalSlate = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.4, metalness: 0.68 });
-  const metalLight = new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.25, metalness: 0.85 });
+  // Shared PBR Materials (#49 neutral metallic space station steel/titanium tones)
+  const metalDark = new THREE.MeshStandardMaterial({ color: 0x1e2430, roughness: 0.36, metalness: 0.74 });
+  const metalSlate = new THREE.MeshStandardMaterial({ color: 0x2d3544, roughness: 0.4, metalness: 0.68 });
+  const metalLight = new THREE.MeshStandardMaterial({ color: 0x9ca3af, roughness: 0.25, metalness: 0.85 });
   const metalBrass = new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.28, metalness: 0.82 });
   const ceramicWhite = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.35, metalness: 0.15 });
   const sofaNavyMat = new THREE.MeshStandardMaterial({ color: 0x1e3a5f, roughness: 0.76, metalness: 0.08 });
@@ -878,6 +903,58 @@ export function populateStationFurniture(
     beacon: tvBeacon,
   };
 
+  // Multiplayer Waiting Lobby Holographic Customization Terminal (5.0, 0, 3.6)
+  const custGroup = new THREE.Group();
+  custGroup.position.set(5.0, 0, 3.6);
+  custGroup.rotation.y = -Math.PI * 0.75;
+  const custBase = new THREE.Mesh(cylGeo(0.46, 0.56, 0.92, 12), metalDark);
+  custBase.position.y = 0.46;
+  const custTrim = new THREE.Mesh(
+    new THREE.TorusGeometry(0.47, 0.03, 8, 24),
+    stdMat(0x2dd4bf, 0.3, 0.4, 0x14b8a6, 0.9)
+  );
+  custTrim.rotation.x = Math.PI / 2;
+  custTrim.position.y = 0.92;
+  const custMirrorFrame = new THREE.Mesh(boxGeo(0.76, 1.05, 0.08), metalSlate);
+  custMirrorFrame.position.set(0, 1.48, -0.05);
+  const custScreen = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.62, 0.88),
+    stdMat(0x38bdf8, 0.2, 0.1, 0x0ea5e9, 0.85)
+  );
+  custScreen.position.set(0, 1.48, 0.0);
+  const custBeacon = new THREE.Mesh(
+    new THREE.OctahedronGeometry(0.14, 0),
+    stdMat(0xc084fc, 0.2, 0.3, 0xa855f7, 1.2)
+  );
+  custBeacon.position.set(0, 2.32, 0);
+  registerSpinner({ obj: custBeacon, speedY: 1.5, floatAmp: 0.07, baseY: 2.32 });
+
+  const custOutlineGroup = new THREE.Group();
+  const custEdge = new THREE.LineSegments(
+    new THREE.EdgesGeometry(new THREE.BoxGeometry(0.95, 2.05, 0.85)),
+    new THREE.LineBasicMaterial({ color: 0x2dd4bf, transparent: true, opacity: 0.95 })
+  );
+  custEdge.position.y = 1.02;
+  custOutlineGroup.add(custEdge);
+  custOutlineGroup.visible = false;
+
+  const custHitMesh = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.75, 0.75, 2.2, 8),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, colorWrite: false })
+  );
+  custHitMesh.position.y = 1.1;
+  custHitMesh.userData = { interactType: 'customize_terminal' };
+
+  custGroup.add(custBase, custTrim, custMirrorFrame, custScreen, custBeacon, custOutlineGroup, custHitMesh);
+  activeRoom.group.add(custGroup);
+  const customizeTerminal: CustomizeTerminalObject = {
+    position: new THREE.Vector3(5.0, 0, 3.6),
+    group: custGroup,
+    beacon: custBeacon,
+    outlineGroup: custOutlineGroup,
+    hitMesh: custHitMesh,
+  };
+
   // ==================================================================
   // 2. COMMUNICATION ROOM
   // ==================================================================
@@ -1117,6 +1194,116 @@ export function populateStationFurniture(
   registerSpinner({ obj: chGlobe, speedY: 0.65, floatAmp: 0.06, baseY: 1.48 });
   addFramedArt(24.75, 2.35, -18.8, -Math.PI / 2, 2.2, 1.6, artNusantaraTex);
   addFramedArt(11.25, 2.35, -14.2, Math.PI / 2, 2.0, 1.5, artWorldTex);
+
+  // Chapter 4 Secret Quest (#39): Tall Cabinet, Locked Box "Febriyani" on Top, and Movable Step-Ladder
+  const cabinetGroup = new THREE.Group();
+  cabinetGroup.position.set(19.4, 0, -21.25);
+  const cabBody = new THREE.Mesh(boxGeo(1.45, 2.35, 0.9), woodWalnut);
+  cabBody.position.y = 1.175;
+  const cabTrim = new THREE.Mesh(boxGeo(1.52, 0.08, 0.96), metalDark);
+  cabTrim.position.y = 2.34;
+  const cabDoorL = new THREE.Mesh(boxGeo(0.66, 2.05, 0.05), woodOak);
+  cabDoorL.position.set(-0.35, 1.14, 0.45);
+  const cabDoorR = cabDoorL.clone();
+  cabDoorR.position.x = 0.35;
+  const cabKnobL = new THREE.Mesh(cylGeo(0.03, 0.03, 0.06, 8), metalBrass);
+  cabKnobL.rotation.x = Math.PI / 2;
+  cabKnobL.position.set(-0.08, 1.14, 0.49);
+  const cabKnobR = cabKnobL.clone();
+  cabKnobR.position.x = 0.08;
+  cabinetGroup.add(cabBody, cabTrim, cabDoorL, cabDoorR, cabKnobL, cabKnobR);
+  activeRoom.group.add(cabinetGroup);
+
+  // Secret Box "Febriyani" resting atop tall cabinet (y = 2.38)
+  const boxGroup = new THREE.Group();
+  boxGroup.position.set(19.4, 2.38, -21.25);
+  const chestBody = new THREE.Mesh(boxGeo(0.48, 0.24, 0.34), stdMat(0x6d2817, 0.52, 0.18));
+  chestBody.position.y = 0.12;
+  const chestLid = new THREE.Mesh(boxGeo(0.5, 0.08, 0.36), woodWalnut);
+  chestLid.position.y = 0.26;
+  const chestClasp = new THREE.Mesh(boxGeo(0.11, 0.12, 0.04), stdMat(0xfbbf24, 0.25, 0.7, 0xf59e0b, 0.85));
+  chestClasp.position.set(0, 0.21, 0.185);
+  const boxOutlineGroup = new THREE.Group();
+  const boxOutlineEdge = new THREE.LineSegments(
+    new THREE.EdgesGeometry(new THREE.BoxGeometry(0.62, 0.42, 0.48)),
+    new THREE.LineBasicMaterial({ color: 0xfbbf24, transparent: true, opacity: 0.95 })
+  );
+  boxOutlineEdge.position.y = 0.18;
+  boxOutlineGroup.add(boxOutlineEdge);
+  boxOutlineGroup.visible = false;
+  const boxHitMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(0.85, 0.85, 0.85),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, colorWrite: false })
+  );
+  boxHitMesh.position.y = 0.22;
+  boxHitMesh.userData = { interactType: 'aulia_box' };
+  boxGroup.add(chestBody, chestLid, chestClasp, boxOutlineGroup, boxHitMesh);
+  activeRoom.group.add(boxGroup);
+
+  // Movable Aluminum Step-Ladder (tangga)
+  const ladderRestPos = new THREE.Vector3(14.8, 0, -14.8);
+  const ladderPlacedPos = new THREE.Vector3(19.4, 0, -20.05);
+  const ladderGroup = new THREE.Group();
+  ladderGroup.position.copy(ladderRestPos);
+  ladderGroup.rotation.y = 0.4;
+  const railGeo = boxGeo(0.06, 1.72, 0.07);
+  const railL = new THREE.Mesh(railGeo, metalLight);
+  railL.position.set(-0.26, 0.86, 0);
+  railL.rotation.x = 0.12;
+  const railR = railL.clone();
+  railR.position.x = 0.26;
+  const rearRailL = new THREE.Mesh(railGeo, metalSlate);
+  rearRailL.position.set(-0.26, 0.84, -0.36);
+  rearRailL.rotation.x = -0.18;
+  const rearRailR = rearRailL.clone();
+  rearRailR.position.x = 0.26;
+  ladderGroup.add(railL, railR, rearRailL, rearRailR);
+  for (let r = 0; r < 5; r++) {
+    const rung = new THREE.Mesh(boxGeo(0.54, 0.045, 0.11), stdMat(0xf59e0b, 0.4, 0.4));
+    rung.position.set(0, 0.28 + r * 0.31, 0.04 - r * 0.036);
+    ladderGroup.add(rung);
+  }
+  const ladderOutlineGroup = new THREE.Group();
+  const ladderOutlineEdge = new THREE.LineSegments(
+    new THREE.EdgesGeometry(new THREE.BoxGeometry(0.75, 1.8, 0.72)),
+    new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.95 })
+  );
+  ladderOutlineEdge.position.set(0, 0.9, -0.14);
+  ladderOutlineGroup.add(ladderOutlineEdge);
+  ladderOutlineGroup.visible = false;
+  const ladderHitMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(0.95, 1.9, 0.95),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, colorWrite: false })
+  );
+  ladderHitMesh.position.set(0, 0.95, -0.1);
+  ladderHitMesh.userData = { interactType: 'aulia_ladder' };
+  ladderGroup.add(ladderOutlineGroup, ladderHitMesh);
+  activeRoom.group.add(ladderGroup);
+
+  const auliaQuestObjs: AuliaQuest3DObjects = {
+    cabinetGroup,
+    boxGroup,
+    boxOutlineGroup,
+    boxHitMesh,
+    boxPos: new THREE.Vector3(19.4, 2.38, -21.25),
+    ladderGroup,
+    ladderOutlineGroup,
+    ladderHitMesh,
+    ladderRestPos,
+    ladderPlacedPos,
+    setLadderPlaced: (placed: boolean) => {
+      if (placed) {
+        ladderGroup.position.copy(ladderPlacedPos);
+        ladderGroup.rotation.y = Math.PI;
+      } else {
+        ladderGroup.position.copy(ladderRestPos);
+        ladderGroup.rotation.y = 0.4;
+      }
+    },
+    setBoxVisible: (visible: boolean) => {
+      boxGroup.visible = visible;
+    },
+  };
 
   // ==================================================================
   // 6. ECONOMIC ROOM
@@ -1487,5 +1674,13 @@ export function populateStationFurniture(
     };
   });
 
-  return { vents, theoryBooks, spinners, roomGroups, secretTv };
+  return {
+    vents,
+    theoryBooks,
+    spinners,
+    roomGroups,
+    secretTv,
+    customizeTerminal,
+    auliaQuestObjs,
+  };
 }

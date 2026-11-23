@@ -12,6 +12,8 @@ import {
 } from '../data/stationLayout';
 import { MissionId, RoomId } from '../types/game';
 import {
+  AuliaQuest3DObjects,
+  CustomizeTerminalObject,
   populateStationFurniture,
   RoomGroupEntry,
   SecretTvObject,
@@ -127,6 +129,8 @@ export interface StationWorld {
   theoryBooks: TheoryBookObject[];
   terminals: TerminalObject[];
   secretTv: SecretTvObject;
+  customizeTerminal: CustomizeTerminalObject;
+  auliaQuestObjs: AuliaQuest3DObjects;
   interactHitMeshes: THREE.Object3D[];
   wallBoxes: THREE.Box3[];
   animatedSpinners: SpinnerEntry[];
@@ -175,9 +179,9 @@ export function buildStationWorld(scene: THREE.Scene, maxAniso: number, isSoftwa
   });
 
   const frameMat = new THREE.MeshStandardMaterial({
-    color: 0x1e293b,
-    roughness: 0.32,
-    metalness: 0.8,
+    color: 0x262d3a,
+    roughness: 0.34,
+    metalness: 0.78,
   });
 
   const windowGlassMat = new THREE.MeshPhysicalMaterial({
@@ -290,9 +294,9 @@ export function buildStationWorld(scene: THREE.Scene, maxAniso: number, isSoftwa
   const cornerPillarGeo = new THREE.CylinderGeometry(WALL_THICK * 0.62, WALL_THICK * 0.68, WALL_HEIGHT, 8);
   const cornerRingGeo = new THREE.CylinderGeometry(WALL_THICK * 0.66, WALL_THICK * 0.66, 0.12, 8);
   const cornerRingMat = new THREE.MeshStandardMaterial({
-    color: 0x38bdf8,
-    emissive: 0x0284c7,
-    emissiveIntensity: 0.75,
+    color: 0x94a3b8,
+    emissive: 0x475569,
+    emissiveIntensity: 0.45,
     roughness: 0.3,
   });
 
@@ -464,7 +468,7 @@ export function buildStationWorld(scene: THREE.Scene, maxAniso: number, isSoftwa
 
     const leafW = (d.width - 0.6) / 2;
     const leafMat = new THREE.MeshStandardMaterial({
-      color: 0x334155,
+      color: 0x3b4454,
       roughness: 0.32,
       metalness: 0.75,
     });
@@ -730,13 +734,14 @@ export function buildStationWorld(scene: THREE.Scene, maxAniso: number, isSoftwa
   addHoloTable(0, -36, 0xf43f5e, 'balance');
   addHoloTable(0, -55, 0xeab308, 'obs');
 
-  // 5. Populate Detailed Furniture, Interactive Theory Books, Room Culling Groups, Physical Floor Vents & Secret TV
-  const { vents, theoryBooks, roomGroups, secretTv } = populateStationFurniture(stationGroup, isSoftwareGl);
+  // 5. Populate Detailed Furniture, Interactive Theory Books, Room Culling Groups, Physical Floor Vents & Quest Props
+  const { vents, theoryBooks, roomGroups, secretTv, customizeTerminal, auliaQuestObjs } =
+    populateStationFurniture(stationGroup, isSoftwareGl);
 
-  // 2 Dynamic Local Room PointLights (replaces 11 simultaneous per-room PointLights for 60fps shading)
-  const localLightA = new THREE.PointLight(0x38bdf8, 2.5, 24, 1.3);
+  // 2 Dynamic Local Room PointLights (#49 realistic warm-neutral titanium station lighting)
+  const localLightA = new THREE.PointLight(0xf1f5f9, 2.35, 24, 1.3);
   localLightA.position.set(0, 3.6, 0);
-  const localLightB = new THREE.PointLight(0x0ea5e9, 2.1, 24, 1.3);
+  const localLightB = new THREE.PointLight(0xe2e8f0, 2.0, 24, 1.3);
   localLightB.position.set(0, 3.6, -36);
   stationGroup.add(localLightA, localLightB);
   const localLights: [THREE.PointLight, THREE.PointLight] = [localLightA, localLightB];
@@ -834,6 +839,9 @@ export function buildStationWorld(scene: THREE.Scene, maxAniso: number, isSoftwa
     ...theoryBooks.map((b) => b.hitMesh),
     ...vents.map((v) => v.hitMesh),
     secretTv.hitMesh,
+    customizeTerminal.hitMesh,
+    auliaQuestObjs.ladderHitMesh,
+    auliaQuestObjs.boxHitMesh,
   ];
 
   return {
@@ -843,6 +851,8 @@ export function buildStationWorld(scene: THREE.Scene, maxAniso: number, isSoftwa
     theoryBooks,
     terminals,
     secretTv,
+    customizeTerminal,
+    auliaQuestObjs,
     interactHitMeshes,
     wallBoxes,
     animatedSpinners,

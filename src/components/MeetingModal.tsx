@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   Check,
   Clock,
+  Eye,
   Headphones,
   MessageSquare,
   Mic,
@@ -10,19 +11,25 @@ import {
   Send,
   ShieldAlert,
   SkipForward,
+  Sparkles,
   UserX,
   Volume2,
   VolumeX,
 } from 'lucide-react';
 import { soundEngine } from '../audio/soundEngine';
 import { PLAYER_COLORS } from '../data/gameData';
-import { MeetingState, RemotePlayerPublic } from '../types/game';
+import { MeetingState, MultiplayerRole, PeramalInspectResult, RemotePlayerPublic } from '../types/game';
 import { HudVoiceControls } from './HUD';
 
 interface MeetingModalProps {
   meeting: MeetingState;
   players: RemotePlayerPublic[];
   myId: string;
+  myRole?: MultiplayerRole | null;
+  myPeramalUsed?: boolean;
+  peramalResult?: PeramalInspectResult | null;
+  onInspectRole?: (targetId: string) => void;
+  onClearPeramalResult?: () => void;
   voiceControls?: HudVoiceControls;
   voiceEnabled?: boolean;
   voiceVolume?: number;
@@ -36,6 +43,11 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
   meeting,
   players,
   myId,
+  myRole,
+  myPeramalUsed = false,
+  peramalResult,
+  onInspectRole,
+  onClearPeramalResult,
   voiceControls,
   voiceEnabled = true,
   voiceVolume = 0.9,
@@ -105,11 +117,26 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
               )}
             </div>
             <div>
-              <h2 className="font-display text-base md:text-lg font-extrabold text-white">
-                {meeting.reason === 'report'
-                  ? `LAPORAN KAPSUL STASIS: ${meeting.subjectName}`
-                  : 'EMERGENCY MEETING — CENTRAL LOBBY'}
-              </h2>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="font-display text-base md:text-lg font-extrabold text-white">
+                  {meeting.reason === 'report'
+                    ? `LAPORAN KAPSUL STASIS: ${meeting.subjectName}`
+                    : 'EMERGENCY MEETING — CENTRAL LOBBY'}
+                </h2>
+                {myRole && (
+                  <span
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${
+                      myRole === 'impostor'
+                        ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                        : myRole === 'peramal'
+                          ? 'bg-violet-500/20 text-violet-300 border-violet-500/40'
+                          : 'bg-sky-500/20 text-sky-300 border-sky-500/40'
+                    }`}
+                  >
+                    {myRole}
+                  </span>
+                )}
+              </div>
               <p className="text-xs text-slate-300">
                 Dipanggil oleh <strong className="text-amber-300">{meeting.callerName}</strong> · Lokasi: {meeting.locationName || 'Stasiun'}
               </p>
@@ -204,6 +231,40 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
           </div>
         )}
 
+        {/* Private Peramal Inspection Result (#51) */}
+        {peramalResult && (
+          <div className="px-5 py-2.5 bg-violet-950/90 border-b border-violet-400/50 flex flex-wrap items-center justify-between gap-2 shrink-0">
+            <div className="flex items-center gap-2 text-xs text-violet-100">
+              <Sparkles className="w-4 h-4 text-violet-300 shrink-0" />
+              <span>
+                Hasil Terawangan Rahasia (Hanya Kamu):{' '}
+                <strong className="text-white">{peramalResult.targetName}</strong> adalah{' '}
+                <strong
+                  className={
+                    peramalResult.revealedRole === 'impostor'
+                      ? 'text-rose-300 uppercase'
+                      : peramalResult.revealedRole === 'peramal'
+                        ? 'text-violet-300 uppercase'
+                        : 'text-sky-300 uppercase'
+                  }
+                >
+                  {peramalResult.revealedRole}
+                </strong>
+                !
+              </span>
+            </div>
+            {onClearPeramalResult && (
+              <button
+                type="button"
+                onClick={onClearPeramalResult}
+                className="text-[11px] text-violet-300 underline cursor-pointer"
+              >
+                Tutup
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Result Banner if voting just finished */}
         {meeting.resultBanner && (
           <div className="px-5 py-4 bg-sky-500/15 border-b border-sky-400/40 text-center">
@@ -281,6 +342,27 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
                     </button>
 
                     <div className="flex items-center gap-1.5 shrink-0">
+                      {myRole === 'peramal' &&
+                        amAlive &&
+                        !isMe &&
+                        p.alive &&
+                        !myPeramalUsed &&
+                        !meeting.resultBanner &&
+                        onInspectRole && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              soundEngine.playClick();
+                              onInspectRole(p.id);
+                            }}
+                            title="Terawang Peran Pemain (1x per Match)"
+                            className="px-2 py-1 rounded-lg bg-violet-500/20 hover:bg-violet-500/35 border border-violet-400/50 text-violet-200 text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                          >
+                            <Eye className="w-3 h-3" />
+                            Terawang
+                          </button>
+                        )}
                       {!isMe && voiceControls && (
                         <button
                           type="button"

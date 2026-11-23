@@ -20,6 +20,7 @@ import {
   QuestionModel,
   QuizQuestion,
   RoomId,
+  SaveState,
 } from '../types/game';
 
 export const HELMET_DESIGNS: Array<{ id: HelmetDesignId; label: string; desc: string }> = [
@@ -29,11 +30,38 @@ export const HELMET_DESIGNS: Array<{ id: HelmetDesignId; label: string; desc: st
   { id: 'explorer_dome', label: 'Explorer Dome', desc: 'Kubah kaca lebar berbingkai cincin penguat orbit' },
 ];
 
-export const COSTUME_STYLES: Array<{ id: CostumeStyleId; label: string; desc: string }> = [
+export const COSTUME_STYLES: Array<{
+  id: CostumeStyleId;
+  label: string;
+  desc: string;
+  inventoryId?: string;
+  unlockHint?: string;
+}> = [
   { id: 'standard_crew', label: 'Standard Crew', desc: 'Seragam antariksa standar GLOBALUS dengan panel dada' },
   { id: 'tactical_armor', label: 'Tactical Armor', desc: 'Pelindung bahu & pelat dada berlapis baja karbon' },
   { id: 'nusantara_batik', label: 'Nusantara Batik', desc: 'Setelan kosmik berornamen batik emas khas Nusantara' },
   { id: 'cyber_neon', label: 'Cyber Neon', desc: 'Seragam berjalur sirkuit neon menyala di sambungan lengan' },
+  {
+    id: 'batik_smada_biru',
+    label: 'Batik SMADA Biru',
+    desc: 'Baju berkerah lengan pendek motif Batik SMADA biru-emas eksklusif dari Aulia',
+    inventoryId: 'batik_smada_biru',
+    unlockHint: 'Selesaikan Misi Rahasia Aulia di Chapter 4 (Solo)',
+  },
+  {
+    id: 'batik_smada_ungu',
+    label: 'Batik SMADA Ungu',
+    desc: 'Baju berkerah lengan pendek motif Batik SMADA ungu megah penakluk Chapter 5',
+    inventoryId: 'batik_smada_ungu',
+    unlockHint: 'Selesaikan seluruh Chapter 5 (cutscene Ratu Laras)',
+  },
+  {
+    id: 'batik_smada_merah',
+    label: 'Batik SMADA Merah',
+    desc: 'Baju berkerah lengan pendek motif Batik SMADA merah-emas edisi Master Kolektor',
+    inventoryId: 'batik_smada_merah',
+    unlockHint: 'Capai 5 syarat prestasi kumulatif GLOBALUS (Solo 10x, MP 5x, Ch1–5, semua Emote & Item)',
+  },
 ];
 
 export const PLAYER_COLORS: Array<{
@@ -452,6 +480,40 @@ export const INVENTORY_ITEMS: InventoryItemDef[] = [
     isDefault: false,
     rewardChapter: 5,
     accentHex: '#f43f5e',
+  },
+
+  // Exclusive Batik SMADA Collared Costumes (#38, #39, #40, #41)
+  {
+    id: 'batik_smada_biru',
+    costumeId: 'batik_smada_biru',
+    name: 'Batik SMADA Biru',
+    category: 'costume',
+    description: 'Kemeja berkerah lengan pendek bermotif Batik SMADA biru-emas. Hadiah terima kasih dari Aulia setelah misi rahasia Chapter 4.',
+    unlockHint: 'Selesaikan Misi Rahasia Aulia di Chapter 4 (Solo).',
+    isDefault: false,
+    rewardChapter: 4,
+    accentHex: '#2563eb',
+  },
+  {
+    id: 'batik_smada_ungu',
+    costumeId: 'batik_smada_ungu',
+    name: 'Batik SMADA Ungu',
+    category: 'costume',
+    description: 'Kemeja berkerah lengan pendek bermotif Batik SMADA ungu-emas yang terbuka setelah menuntaskan Chapter 5.',
+    unlockHint: 'Selesaikan Chapter 5 dan cutscene penutupnya.',
+    isDefault: false,
+    rewardChapter: 5,
+    accentHex: '#9333ea',
+  },
+  {
+    id: 'batik_smada_merah',
+    costumeId: 'batik_smada_merah',
+    name: 'Batik SMADA Merah',
+    category: 'costume',
+    description: 'Kemeja berkerah lengan pendek bermotif Batik SMADA merah-emas prestisius untuk Master Kolektor GLOBALUS.',
+    unlockHint: 'Selesaikan 5 syarat prestasi kumulatif (10x Solo, 5x Multiplayer, Ch1–5 & Quiz, semua Emote & Item).',
+    isDefault: false,
+    accentHex: '#dc2626',
   },
 ];
 
@@ -1681,6 +1743,195 @@ export const CUTSCENES: Record<CutsceneCharacterId, CutsceneScript> = {
       },
     ],
   },
+  aulia_collapse: {
+    id: 'aulia_collapse',
+    chapter: 4,
+    title: 'INSIDEN CENTRAL LOBBY — MISI RAHASIA AULIA',
+    subtitle: 'Central Lobby — Pertolongan Darurat Rekan Kru',
+    roomId: 'central_lobby',
+    themeColorHex: '#38bdf8',
+    lines: [
+      {
+        speaker: 'AULIA',
+        roleTitle: 'Analis Budaya Stasiun',
+        speakerId: 'aulia',
+        colorHex: '#60a5fa',
+        text: 'Ughhh... kepalaku mendadak berputar dan napasku berat sekali...',
+        emotion: 'panic',
+        gesture: 'panic',
+        cameraFocus: 'aulia_group',
+        scenePhase: 'aulia_collapsed',
+      },
+      {
+        speaker: 'DANI',
+        roleTitle: 'Teknisi Medis Kru',
+        speakerId: 'dani',
+        colorHex: '#34d399',
+        text: 'Aulia! Tahan sebentar—kamu pingsan! Ayo kita cek kondisi dan denyut nadinya sekarang!',
+        emotion: 'panic',
+        gesture: 'crouch_check',
+        cameraFocus: 'aulia_group',
+        scenePhase: 'aulia_collapsed',
+      },
+      {
+        speaker: 'SARI',
+        roleTitle: 'Kru Observasi',
+        speakerId: 'sari',
+        colorHex: '#f472b6',
+        text: 'Ya ampun, kondisi Aulia lemah sekali! Di mana kotak bio-stabilizer darurat yang biasa dia simpan?',
+        emotion: 'panic',
+        gesture: 'shock_cover',
+        cameraFocus: 'aulia_group',
+        scenePhase: 'aulia_collapsed',
+      },
+      {
+        speaker: 'RAKA',
+        roleTitle: 'Navigasi Sektor',
+        speakerId: 'raka',
+        colorHex: '#fbbf24',
+        text: 'Tenang semua, jaga ruang napasnya tetap lega! Terakhir Aulia sempat menyimpannya di Sayap Timur.',
+        emotion: 'serious',
+        gesture: 'point',
+        cameraFocus: 'aulia_group',
+        scenePhase: 'aulia_collapsed',
+      },
+      {
+        speaker: 'KAMU (ASTRONAUT)',
+        roleTitle: 'Komandan Misi',
+        speakerId: 'player',
+        colorHex: '#38bdf8',
+        text: 'Eh, cahaya keemasan apa itu di dekat koridor Sayap Timur?! Kilaunya seperti memanggil ke arah Cultural Room!',
+        emotion: 'curious',
+        gesture: 'tilt_curious',
+        cameraFocus: 'sparkle_spot',
+        scenePhase: 'aulia_sparkle_spot',
+      },
+      {
+        speaker: 'NARATOR',
+        roleTitle: 'Petunjuk Stasiun',
+        speakerId: 'narrator',
+        colorHex: '#fde047',
+        text: 'Cahaya sparkle berputar cepat meluncur melewati koridor timur dan masuk menuju Cultural Room...',
+        emotion: 'curious',
+        cameraFocus: 'sparkle_follow',
+        scenePhase: 'aulia_sparkle_follow',
+      },
+      {
+        speaker: 'NARATOR',
+        roleTitle: 'Cultural Room',
+        speakerId: 'narrator',
+        colorHex: '#fde047',
+        text: 'Cahaya berhenti tepat di atas lemari tinggi di sudut Cultural Room. Di ruangan itu juga ada tangga lipat yang dapat dipindahkan untuk memanjat!',
+        emotion: 'curious',
+        cameraFocus: 'cabinet_top',
+        scenePhase: 'aulia_sparkle_cabinet',
+      },
+      {
+        speaker: 'KAMU (ASTRONAUT)',
+        roleTitle: 'Komandan Misi',
+        speakerId: 'player',
+        colorHex: '#38bdf8',
+        text: 'Baik! Aku harus bergegas ke Cultural Room, memindahkan tangga ke lemari tinggi itu, memanjat, dan mengambil kotak rahasianya untuk menolong Aulia!',
+        emotion: 'confident',
+        gesture: 'nod',
+        cameraFocus: 'player',
+        scenePhase: 'aulia_sparkle_cabinet',
+      },
+    ],
+  },
+  aulia_febriyani: {
+    id: 'aulia_febriyani',
+    chapter: 4,
+    title: 'KOTAK RAHASIA DI ATAS LEMARI',
+    subtitle: 'Cultural Room — Penemuan Kotak Bersegel',
+    roomId: 'cultural_room',
+    themeColorHex: '#60a5fa',
+    lines: [
+      {
+        speaker: 'NARATOR',
+        roleTitle: 'Cultural Room',
+        speakerId: 'narrator',
+        colorHex: '#fde047',
+        text: 'Dari puncak tangga, kamu meraih kotak perak bersegel yang tersimpan rapi di atas lemari tinggi itu.',
+        cameraFocus: 'cabinet_top',
+        scenePhase: 'aulia_febriyani_inspect',
+      },
+      {
+        speaker: 'KAMU (ASTRONAUT)',
+        roleTitle: 'Komandan Misi',
+        speakerId: 'player',
+        colorHex: '#38bdf8',
+        text: 'Di tutupnya terukir tulisan "Febriyani"... Kotak ini masih terkunci kode pribadi dan tidak bisa dibuka paksa.',
+        emotion: 'curious',
+        gesture: 'tilt_curious',
+        cameraFocus: 'cabinet_top',
+        scenePhase: 'aulia_febriyani_inspect',
+      },
+      {
+        speaker: 'KAMU (ASTRONAUT)',
+        roleTitle: 'Komandan Misi',
+        speakerId: 'player',
+        colorHex: '#38bdf8',
+        text: 'Aku harus segera membawa kotak "Febriyani" ini kembali kepada Aulia di Central Lobby!',
+        emotion: 'confident',
+        gesture: 'nod',
+        cameraFocus: 'player',
+        scenePhase: 'aulia_febriyani_inspect',
+      },
+    ],
+  },
+  aulia_open: {
+    id: 'aulia_open',
+    chapter: 4,
+    title: 'KOTAK TERBUKA — HADIAH BATIK SMADA BIRU',
+    subtitle: 'Central Lobby — Aulia Kembali Pulih',
+    roomId: 'central_lobby',
+    themeColorHex: '#2563eb',
+    lines: [
+      {
+        speaker: 'KAMU (ASTRONAUT)',
+        roleTitle: 'Komandan Misi',
+        speakerId: 'player',
+        colorHex: '#38bdf8',
+        text: 'Aulia! Ini kotak bertuliskan "Febriyani" yang ditemukan di atas lemari Cultural Room!',
+        emotion: 'confident',
+        gesture: 'point',
+        cameraFocus: 'aulia_group',
+        scenePhase: 'aulia_open_box',
+      },
+      {
+        speaker: 'AULIA',
+        roleTitle: 'Analis Budaya Stasiun',
+        speakerId: 'aulia',
+        colorHex: '#60a5fa',
+        text: 'Akhirnya ketemu! Itu kotak bio-stabilizer pribadiku—Febriyani adalah nama keluarga yang kujadikan sandi pengunci.',
+        emotion: 'inspiring',
+        gesture: 'nod',
+        cameraFocus: 'aulia_group',
+        scenePhase: 'aulia_open_box',
+      },
+      {
+        speaker: 'NARATOR',
+        roleTitle: 'Central Lobby',
+        speakerId: 'narrator',
+        colorHex: '#34d399',
+        text: 'Segel kotak "Febriyani" terbuka dengan halus. Aulia menghirup penstabil oksigennya dan segera berdiri pulih berkat kesigapanmu!',
+        cameraFocus: 'aulia_group',
+        scenePhase: 'aulia_open_box',
+      },
+      {
+        speaker: 'AULIA',
+        roleTitle: 'Analis Budaya Stasiun',
+        speakerId: 'aulia',
+        colorHex: '#60a5fa',
+        text: 'Terima kasih banyak sudah sigap mencarinya! Sebagai tanda terima kasih, terimalah seragam spesial Batik SMADA Biru ini untukmu!',
+        emotion: 'inspiring',
+        gesture: 'explain',
+        cameraFocus: 'aulia_group',
+        scenePhase: 'aulia_open_box',
+      },
+    ],
+  },
 };
 
 export const IMPOSTOR_CHALLENGES: ImpostorChallenge[] = [
@@ -2205,3 +2456,70 @@ export const EMOTE_MAP: Record<EmoteId, EmoteDef> = EMOTES.reduce(
   },
   {} as Record<EmoteId, EmoteDef>
 );
+
+export interface BatikMerahRequirementStatus {
+  id: string;
+  label: string;
+  currentText: string;
+  met: boolean;
+}
+
+export function getBatikMerahRequirements(state: SaveState): {
+  allMet: boolean;
+  items: BatikMerahRequirementStatus[];
+} {
+  const soloCount = Math.max(0, Number(state.soloCompletions || 0));
+  const mpCount = Math.max(0, Number(state.multiplayerCompletions || 0));
+  const ch5AndQuiz = Boolean(state.completedChapters?.includes(5) && state.quizCompleted);
+
+  const ownedEmotes = new Set(state.unlockedEmotes || []);
+  const totalEmotes = EMOTES.length;
+  const unlockedEmoteCount = EMOTES.filter((e) => ownedEmotes.has(e.id)).length;
+  const allEmotesMet = unlockedEmoteCount >= totalEmotes;
+
+  const ownedItems = new Set(state.unlockedItems || []);
+  const requiredRewardItems = INVENTORY_ITEMS.filter(
+    (item) => !item.isDefault && item.id !== 'batik_smada_merah'
+  );
+  const unlockedRewardCount = requiredRewardItems.filter((item) => ownedItems.has(item.id)).length;
+  const allItemsMet = unlockedRewardCount >= requiredRewardItems.length;
+
+  const items: BatikMerahRequirementStatus[] = [
+    {
+      id: 'solo_10',
+      label: 'Tamatkan Mode Solo 10 kali',
+      currentText: `${Math.min(soloCount, 10)} / 10`,
+      met: soloCount >= 10,
+    },
+    {
+      id: 'mp_5',
+      label: 'Selesaikan Mode Multiplayer 5 kali',
+      currentText: `${Math.min(mpCount, 5)} / 5`,
+      met: mpCount >= 5,
+    },
+    {
+      id: 'ch5_quiz',
+      label: 'Tamatkan Chapter 1–5 & Final Quiz',
+      currentText: ch5AndQuiz ? 'Selesai' : 'Belum',
+      met: ch5AndQuiz,
+    },
+    {
+      id: 'all_emotes',
+      label: 'Kumpulkan seluruh Emote',
+      currentText: `${unlockedEmoteCount} / ${totalEmotes}`,
+      met: allEmotesMet,
+    },
+    {
+      id: 'all_items',
+      label: 'Buka seluruh Item & Hadiah lainnya',
+      currentText: `${unlockedRewardCount} / ${requiredRewardItems.length}`,
+      met: allItemsMet,
+    },
+  ];
+
+  return {
+    allMet: items.every((i) => i.met),
+    items,
+  };
+}
+

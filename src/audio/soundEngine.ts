@@ -133,10 +133,14 @@ class SoundEngine {
       ((this.stepIndex % activeBuiltIn.cycleSteps) * activeBuiltIn.stepSec) || 0;
 
     const currentTimeSec = isExternal ? this.externalCurrentTime : builtInCurrent;
+    const isTrackPreview = Boolean(this.selectedExternalTrack?.isPreview);
+    const fallbackExtDur = isTrackPreview
+      ? (this.selectedExternalTrack?.previewDurationMs || 30000) / 1000
+      : (this.selectedExternalTrack?.durationMs || this.selectedExternalTrack?.previewDurationMs || 30000) / 1000;
     const durationSec = isExternal
       ? this.externalDuration > 0
         ? this.externalDuration
-        : (this.selectedExternalTrack?.previewDurationMs || 30000) / 1000
+        : fallbackExtDur
       : builtInDuration;
     const progress =
       durationSec > 0 ? Math.max(0, Math.min(1, currentTimeSec / durationSec)) : 0;
@@ -160,7 +164,7 @@ class SoundEngine {
       durationSec,
       progress,
       error: isExternal ? this.externalError : null,
-      isPreview: Boolean(this.selectedExternalTrack?.isPreview ?? isExternal),
+      isPreview: Boolean(this.selectedExternalTrack?.isPreview),
       fullDurationSec:
         isExternal && this.selectedExternalTrack?.durationMs
           ? this.selectedExternalTrack.durationMs / 1000
@@ -178,10 +182,13 @@ class SoundEngine {
 
   public seekPlayback(seconds: number) {
     if (!this.externalAudio || !this.selectedExternalTrack?.previewUrl) return;
+    const fallbackMs = this.selectedExternalTrack.isPreview
+      ? this.selectedExternalTrack.previewDurationMs || 30000
+      : this.selectedExternalTrack.durationMs || this.selectedExternalTrack.previewDurationMs || 30000;
     const dur =
       Number.isFinite(this.externalAudio.duration) && this.externalAudio.duration > 0
         ? this.externalAudio.duration
-        : (this.selectedExternalTrack.previewDurationMs || 30000) / 1000;
+        : fallbackMs / 1000;
     const clamped = Math.max(0, Math.min(dur, seconds));
     try {
       this.externalAudio.currentTime = clamped;

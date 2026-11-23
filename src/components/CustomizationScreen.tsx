@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
-import { ArrowLeft, Check, RotateCcw, Save, User } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { ArrowLeft, Check, Lock, RotateCcw, Save, User } from 'lucide-react';
 import { soundEngine } from '../audio/soundEngine';
 import {
   COSTUME_STYLES,
+  getBatikMerahRequirements,
   HELMET_DESIGNS,
   INVENTORY_ITEMS,
   PLAYER_COLORS,
@@ -13,12 +14,14 @@ import {
   HeadAccessoryId,
   HeadwearTransform,
   NeckAccessoryId,
+  SaveState,
 } from '../types/game';
 import { CharacterPreview3D } from './CharacterPreview3D';
 
 interface CustomizationScreenProps {
   initialConfig: CharacterConfig;
   unlockedItems: string[];
+  saveState?: SaveState;
   onSave: (config: CharacterConfig) => void;
   onBack: () => void;
 }
@@ -44,6 +47,7 @@ const DEFAULT_CONFIG: CharacterConfig = {
 export const CustomizationScreen: React.FC<CustomizationScreenProps> = ({
   initialConfig,
   unlockedItems,
+  saveState,
   onSave,
   onBack,
 }) => {
@@ -52,6 +56,10 @@ export const CustomizationScreen: React.FC<CustomizationScreenProps> = ({
   const [savedNotice, setSavedNotice] = useState(false);
 
   const unlockedSet = new Set(unlockedItems);
+  const batikMerahReqs = useMemo(
+    () => (saveState ? getBatikMerahRequirements(saveState) : null),
+    [saveState]
+  );
 
   const headItems = INVENTORY_ITEMS.filter(
     (item) => item.category === 'head' && (item.isDefault || unlockedSet.has(item.id))
@@ -237,21 +245,53 @@ export const CustomizationScreen: React.FC<CustomizationScreenProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 {COSTUME_STYLES.map((c) => {
                   const selected = draft.costume === c.id;
+                  const isUnlocked = !c.inventoryId || unlockedSet.has(c.inventoryId);
                   return (
                     <button
                       key={c.id}
+                      disabled={!isUnlocked}
                       onClick={() => {
+                        if (!isUnlocked) return;
                         soundEngine.playClick();
                         setDraft({ ...draft, costume: c.id });
                       }}
-                      className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
-                        selected
-                          ? 'bg-sky-500/15 border-sky-400 text-white'
-                          : 'bg-slate-900/80 border-slate-800 text-slate-300 hover:border-slate-600'
+                      className={`p-3.5 rounded-xl border text-left transition-all ${
+                        !isUnlocked
+                          ? 'bg-slate-950/70 border-slate-800/80 text-slate-400 opacity-85 cursor-not-allowed'
+                          : selected
+                            ? 'bg-sky-500/15 border-sky-400 text-white cursor-pointer'
+                            : 'bg-slate-900/80 border-slate-800 text-slate-300 hover:border-slate-600 cursor-pointer'
                       }`}
                     >
-                      <p className="text-xs font-bold">{c.label}</p>
-                      <p className="text-[11px] text-slate-400 mt-1">{c.desc}</p>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs font-bold flex items-center gap-1.5">
+                          {!isUnlocked && <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
+                          {c.label}
+                        </p>
+                        {!isUnlocked && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-800 text-amber-300">
+                            Terkunci
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        {isUnlocked ? c.desc : c.unlockHint || c.desc}
+                      </p>
+                      {!isUnlocked && c.id === 'batik_smada_merah' && batikMerahReqs && (
+                        <div className="mt-2.5 pt-2 border-t border-slate-800 space-y-1">
+                          {batikMerahReqs.items.map((req) => (
+                            <div key={req.id} className="flex items-center justify-between gap-2 text-[10px]">
+                              <span className={req.met ? 'text-emerald-300' : 'text-slate-400'}>
+                                {req.met ? '✓ ' : '• '}
+                                {req.label}
+                              </span>
+                              <span className={`font-mono-num font-bold ${req.met ? 'text-emerald-300' : 'text-amber-300'}`}>
+                                {req.currentText}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </button>
                   );
                 })}

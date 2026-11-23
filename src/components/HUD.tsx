@@ -5,11 +5,13 @@ import {
   Award,
   BookCheck,
   BookOpen,
+  Check,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
-  Compass,
+  Copy,
   Crosshair,
+  Crown,
   Eye,
   Hand,
   Headphones,
@@ -17,16 +19,20 @@ import {
   Home,
   Lock,
   LockOpen,
+  LogOut,
   Map as MapIcon,
+  MessageSquare,
   Mic,
   MicOff,
   Music,
   Package,
+  Palette,
   Pause,
   Play,
   RefreshCw,
   RotateCcw,
   Search,
+  Send,
   Settings,
   ShieldAlert,
   SkipBack,
@@ -69,12 +75,15 @@ import {
   THEORY_BOOKS,
 } from '../data/theoryBooks';
 import {
+  AuliaSecretQuestState,
   ConnectionStatus,
   EmoteCategory,
   EmoteId,
   GameSettings,
   GraphicsQuality,
+  HostSettings,
   MissionId,
+  MultiplayerPhase,
   MultiplayerRole,
   MusicTrackId,
   RoomId,
@@ -126,6 +135,7 @@ interface HUDProps {
   unlockedEmotes?: EmoteId[];
   cameraMode?: '360' | 'topdown';
   secretTvCompleted?: boolean;
+  auliaQuest?: AuliaSecretQuestState;
   // Multiplayer Props
   isMultiplayer?: boolean;
   isOnline?: boolean;
@@ -135,6 +145,7 @@ interface HUDProps {
   maxReconnectAttempts?: number;
   mpLastError?: string | null;
   mpRole?: MultiplayerRole | null;
+  mpPhase?: MultiplayerPhase | null;
   amAlive?: boolean;
   mpSnapshot?: RoomSnapshot | null;
   completedMpMissions?: string[];
@@ -143,6 +154,7 @@ interface HUDProps {
   onTogglePause: () => void;
   onToggleCameraMode?: () => void;
   onOpenInventory: () => void;
+  onOpenCustomize?: () => void;
   onOpenRanking?: () => void;
   onOpenMusicModal?: () => void;
   onOpenTutorial?: () => void;
@@ -153,8 +165,15 @@ interface HUDProps {
   onInteractBook?: (bookId: TheoryBookId) => void;
   onInteractVent: (ventId: string) => void;
   onInteractSecretTv?: () => void;
+  onInteractCustomizeTerminal?: () => void;
+  onInteractAulia?: (action: 'aulia_talk' | 'aulia_ladder_move' | 'aulia_climb_box') => void;
   onCallMeeting?: (reason: 'emergency' | 'report', podId?: string) => void;
   onEliminateTarget?: (targetId: string) => void;
+  onToggleReady?: () => void;
+  onStartGame?: () => void;
+  onUpdateHostSettings?: (next: HostSettings) => void;
+  onSendLobbyChat?: (text: string) => void;
+  onLeaveMpRoom?: () => void;
   onRetryConnect?: () => void;
   onExitToSolo?: () => void;
   onUpdateSettings: (next: GameSettings) => void;
@@ -177,14 +196,6 @@ const SpaceshipHullSilhouette: React.FC = () => (
   </g>
 );
 
-function getCardinalLabel(cameraYaw: number): { label: string; deg: number } {
-  let deg = Math.round(((-cameraYaw * 180) / Math.PI) % 360);
-  if (deg < 0) deg += 360;
-  const dirs = ['Utara', 'Timur Laut', 'Timur', 'Tenggara', 'Selatan', 'Barat Daya', 'Barat', 'Barat Laut'];
-  const idx = Math.round(deg / 45) % 8;
-  return { label: dirs[idx], deg };
-}
-
 export const HUD: React.FC<HUDProps> = ({
   hud,
   saveState,
@@ -198,6 +209,7 @@ export const HUD: React.FC<HUDProps> = ({
   unlockedEmotes,
   cameraMode = '360',
   secretTvCompleted = false,
+  auliaQuest,
   isMultiplayer = false,
   isOnline = true,
   myPlayerId = null,
@@ -206,6 +218,7 @@ export const HUD: React.FC<HUDProps> = ({
   maxReconnectAttempts = 3,
   mpLastError = null,
   mpRole = null,
+  mpPhase = null,
   amAlive = true,
   mpSnapshot = null,
   completedMpMissions = [],
@@ -214,6 +227,7 @@ export const HUD: React.FC<HUDProps> = ({
   onTogglePause,
   onToggleCameraMode,
   onOpenInventory,
+  onOpenCustomize,
   onOpenRanking,
   onOpenMusicModal,
   onOpenTutorial,
@@ -224,8 +238,15 @@ export const HUD: React.FC<HUDProps> = ({
   onInteractBook,
   onInteractVent,
   onInteractSecretTv,
+  onInteractCustomizeTerminal,
+  onInteractAulia,
   onCallMeeting,
   onEliminateTarget,
+  onToggleReady,
+  onStartGame,
+  onUpdateHostSettings,
+  onSendLobbyChat,
+  onLeaveMpRoom,
   onRetryConnect,
   onExitToSolo,
   onUpdateSettings,
@@ -247,6 +268,9 @@ export const HUD: React.FC<HUDProps> = ({
   const [emoteCat, setEmoteCat] = useState<EmoteCategory>('sapaan');
   const [joyVisual, setJoyVisual] = useState({ x: 0, y: 0, active: false });
   const [killCdSecs, setKillCdSecs] = useState(0);
+  const [copiedCode, setCopiedCode] = useState(false);
+  const [lobbyChatOpen, setLobbyChatOpen] = useState(false);
+  const [lobbyChatInput, setLobbyChatInput] = useState('');
   const joyBaseRef = useRef<HTMLDivElement>(null);
   const joyPointerIdRef = useRef<number | null>(null);
   const mapDragRef = useRef<{ pointerId: number; lastX: number; lastY: number } | null>(null);
@@ -278,7 +302,13 @@ export const HUD: React.FC<HUDProps> = ({
   const impDoneSet = useMemo(() => new Set(completedImpChallenges), [completedImpChallenges]);
 
   const allChaptersDone = !isMultiplayer && saveState.completedChapters.length >= 5;
-  const compass = getCardinalLabel(hud.cameraYaw);
+  const isMpWaitingLobby = isMultiplayer && (mpPhase === 'lobby' || mpSnapshot?.phase === 'lobby');
+  const mpPlayers = mpSnapshot?.players || [];
+  const mpMe = mpPlayers.find((p) => p.id === myPlayerId);
+  const isMpHost = Boolean(mpMe?.isHost);
+  const mpAllNonHostReady = mpPlayers.filter((p) => !p.isHost).every((p) => p.ready);
+  const canHostStart = isMpHost && mpPlayers.length >= 2 && mpAllNonHostReady && mpStatus === 'connected';
+  const lobbyChatCount = mpSnapshot?.lobbyMessages?.length || 0;
 
   const getRoomStatus = (roomId: RoomId): RoomMissionStatus => {
     const room = ROOMS[roomId];
@@ -472,8 +502,8 @@ export const HUD: React.FC<HUDProps> = ({
 
       {/* TOP BAR ROW */}
       <div className="flex items-start justify-between gap-2">
-        {/* TOP-LEFT: Simplified Objective Checklist */}
-        <div className="pointer-events-auto max-w-[235px] sm:max-w-[280px] md:max-w-[310px] bg-[#070d20]/92 border border-sky-500/35 rounded-xl overflow-hidden shadow-lg">
+        {/* TOP-LEFT: Simplified Objective Checklist or Playable 3D Waiting Lobby Roster */}
+        <div className="pointer-events-auto max-w-[245px] sm:max-w-[295px] md:max-w-[330px] bg-[#070d20]/92 border border-sky-500/35 rounded-xl overflow-hidden shadow-lg">
           <button
             onClick={() => {
               soundEngine.playClick();
@@ -482,19 +512,32 @@ export const HUD: React.FC<HUDProps> = ({
             className="w-full min-h-[40px] px-3 py-1.5 flex items-center justify-between gap-2 text-left bg-slate-900/75 hover:bg-slate-800/75 cursor-pointer"
           >
             <div className="min-w-0">
-              {isMultiplayer ? (
+              {isMpWaitingLobby ? (
+                <>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-sky-400 truncate">
+                    WAITING LOBBY 3D · {mpSnapshot?.roomCode}
+                  </p>
+                  <p className="text-[11px] sm:text-xs font-semibold text-white truncate">
+                    {mpPlayers.length}/{mpSnapshot?.maxPlayers || 15} Pemain · {isMpHost ? 'Host Room' : mpMe?.ready ? 'Siap' : 'Belum Siap'}
+                  </p>
+                </>
+              ) : isMultiplayer ? (
                 <>
                   <p
                     className={`text-[10px] font-bold uppercase tracking-wider truncate ${
-                      mpRole === 'impostor' ? 'text-rose-400' : 'text-sky-400'
+                      mpRole === 'impostor'
+                        ? 'text-rose-400'
+                        : mpRole === 'peramal'
+                          ? 'text-violet-300'
+                          : 'text-sky-400'
                     }`}
                   >
-                    {mpRole === 'impostor' ? 'IMPOSTOR' : 'CREWMATE'} · {mpSnapshot?.roomCode}
+                    {mpRole === 'impostor' ? 'IMPOSTOR' : mpRole === 'peramal' ? 'PERAMAL' : 'CREWMATE'} · {mpSnapshot?.roomCode}
                   </p>
                   <p className="text-[11px] sm:text-xs font-semibold text-white truncate">
                     {mpRole === 'impostor'
                       ? `Sabotase (${mpSnapshot?.impostorObjectiveDone || 0}/${mpSnapshot?.impostorObjectiveTotal || 4})`
-                      : `Misi Kru (${mpSnapshot?.crewMissionDone || 0}/${mpSnapshot?.crewMissionTotal || 6})`}
+                      : `Misi Tim (${mpSnapshot?.crewMissionDone || 0}/${mpSnapshot?.crewMissionTotal || 6}) · Kamu ${mpDoneSet.size}`}
                   </p>
                 </>
               ) : (
@@ -516,8 +559,211 @@ export const HUD: React.FC<HUDProps> = ({
           </button>
 
           {trackerOpen && (
-            <div className="px-3 py-2 space-y-2 border-t border-slate-800/80 max-h-[38dvh] overflow-y-auto sci-scroll">
-              {isMultiplayer ? (
+            <div className="px-3 py-2 space-y-2 border-t border-slate-800/80 max-h-[44dvh] overflow-y-auto sci-scroll">
+              {isMpWaitingLobby && mpSnapshot ? (
+                <div className="space-y-2.5 text-[11px]">
+                  {/* Room Code Copy Row */}
+                  <div className="flex items-center justify-between gap-2 bg-slate-900/90 border border-slate-800 rounded-lg px-2.5 py-1.5">
+                    <div>
+                      <span className="text-[9px] uppercase text-slate-400 block">KODE ROOM</span>
+                      <span className="font-mono-num font-extrabold text-sm tracking-widest text-sky-300">
+                        {mpSnapshot.roomCode}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => {
+                        soundEngine.playClick();
+                        navigator.clipboard?.writeText(mpSnapshot.roomCode).catch(() => {});
+                        setCopiedCode(true);
+                        window.setTimeout(() => setCopiedCode(false), 1600);
+                      }}
+                      className="px-2 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center gap-1 cursor-pointer"
+                    >
+                      {copiedCode ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                      <span>{copiedCode ? 'Tersalin' : 'Salin'}</span>
+                    </button>
+                  </div>
+
+                  {/* Host Settings */}
+                  <div className="bg-slate-900/80 border border-slate-800 rounded-lg p-2 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-amber-300">
+                        Pengaturan Match
+                      </span>
+                      <span className="text-[10px] text-slate-400">
+                        {mpPlayers.length >= 11 ? 'Peramal Aktif (≥11)' : 'Peramal ≥11 Pemain'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-slate-300">Impostor</span>
+                      {isMpHost && onUpdateHostSettings ? (
+                        <div className="flex gap-1">
+                          {([1, 2, 3] as const).map((cnt) => (
+                            <button
+                              key={cnt}
+                              onClick={() => {
+                                soundEngine.playClick();
+                                onUpdateHostSettings({
+                                  ...(mpSnapshot.hostSettings || { impostorCount: 1, votingDurationSec: 45 }),
+                                  impostorCount: cnt,
+                                });
+                              }}
+                              className={`px-2 py-0.5 rounded font-mono-num font-bold cursor-pointer ${
+                                (mpSnapshot.hostSettings?.impostorCount || 1) === cnt
+                                  ? 'bg-rose-500 text-white'
+                                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                              }`}
+                            >
+                              {cnt}
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="font-mono-num font-bold text-rose-300">
+                          {mpSnapshot.hostSettings?.impostorCount || 1} Impostor
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-slate-300">Waktu Voting</span>
+                      {isMpHost && onUpdateHostSettings ? (
+                        <div className="flex gap-1">
+                          {([30, 45, 60, 90] as const).map((sec) => (
+                            <button
+                              key={sec}
+                              onClick={() => {
+                                soundEngine.playClick();
+                                onUpdateHostSettings({
+                                  ...(mpSnapshot.hostSettings || { impostorCount: 1, votingDurationSec: 45 }),
+                                  votingDurationSec: sec,
+                                });
+                              }}
+                              className={`px-1.5 py-0.5 rounded font-mono-num font-bold cursor-pointer ${
+                                (mpSnapshot.hostSettings?.votingDurationSec || 45) === sec
+                                  ? 'bg-sky-500 text-slate-950'
+                                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                              }`}
+                            >
+                              {sec}s
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="font-mono-num font-bold text-sky-300">
+                          {mpSnapshot.hostSettings?.votingDurationSec || 45} dtk
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Compact Live Roster */}
+                  <div className="space-y-1 max-h-24 overflow-y-auto sci-scroll pr-0.5">
+                    {mpPlayers.map((p) => {
+                      const col = PLAYER_COLORS.find((c) => c.id === p.character.color) || PLAYER_COLORS[1];
+                      return (
+                        <div key={p.id} className="flex items-center justify-between gap-2 bg-slate-900/70 rounded-md px-2 py-1">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: col.hex }} />
+                            <span className="truncate font-semibold text-white">
+                              {p.name} {p.id === myPlayerId ? '(Kamu)' : ''}
+                            </span>
+                            {p.isHost && <Crown className="w-3 h-3 text-amber-400 shrink-0" />}
+                          </div>
+                          <span
+                            className={`text-[9px] font-bold px-1.5 py-0.5 rounded shrink-0 ${
+                              p.isHost
+                                ? 'bg-amber-500/20 text-amber-300'
+                                : p.ready
+                                  ? 'bg-emerald-500/20 text-emerald-300'
+                                  : 'bg-slate-800 text-slate-400'
+                            }`}
+                          >
+                            {p.isHost ? 'HOST' : p.ready ? 'SIAP' : 'TUNGGU'}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Ready / Start / Customize / Leave Action Row */}
+                  <div className="flex flex-col gap-1.5">
+                    {isMpHost ? (
+                      <button
+                        disabled={!canHostStart}
+                        onClick={() => {
+                          soundEngine.playClick();
+                          onStartGame?.();
+                        }}
+                        className="w-full py-2 px-3 rounded-lg bg-sky-500 hover:bg-sky-400 disabled:bg-slate-800 disabled:text-slate-500 text-slate-950 font-display font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <Play className="w-3.5 h-3.5 fill-current" />
+                        {mpPlayers.length < 2
+                          ? 'BUTUH MIN. 2 PEMAIN'
+                          : !mpAllNonHostReady
+                            ? 'TUNGGU SEMUA SIAP'
+                            : 'MULAI PERMAINAN'}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          soundEngine.playClick();
+                          onToggleReady?.();
+                        }}
+                        className={`w-full py-2 px-3 rounded-lg font-display font-bold text-xs cursor-pointer ${
+                          mpMe?.ready
+                            ? 'bg-emerald-500/20 border border-emerald-400 text-emerald-300'
+                            : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950'
+                        }`}
+                      >
+                        {mpMe?.ready ? 'SUDAH SIAP (BATALKAN)' : 'TANDAI SIAP'}
+                      </button>
+                    )}
+
+                    <div className="grid grid-cols-3 gap-1">
+                      {onOpenCustomize && (
+                        <button
+                          onClick={() => {
+                            soundEngine.playClick();
+                            onOpenCustomize();
+                          }}
+                          className="py-1.5 px-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-300 font-bold text-[10px] flex items-center justify-center gap-1 cursor-pointer"
+                        >
+                          <Palette className="w-3 h-3" />
+                          <span>Kostum</span>
+                        </button>
+                      )}
+                      {onSendLobbyChat && (
+                        <button
+                          onClick={() => {
+                            soundEngine.playClick();
+                            setLobbyChatOpen((v) => !v);
+                          }}
+                          className={`py-1.5 px-1.5 rounded-lg font-bold text-[10px] flex items-center justify-center gap-1 cursor-pointer ${
+                            lobbyChatOpen
+                              ? 'bg-sky-500 text-slate-950'
+                              : 'bg-slate-800 hover:bg-slate-700 text-slate-200'
+                          }`}
+                        >
+                          <MessageSquare className="w-3 h-3" />
+                          <span>Chat ({lobbyChatCount})</span>
+                        </button>
+                      )}
+                      {onLeaveMpRoom && (
+                        <button
+                          onClick={() => {
+                            soundEngine.playClick();
+                            onLeaveMpRoom();
+                          }}
+                          className="py-1.5 px-1.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/40 text-rose-300 font-bold text-[10px] flex items-center justify-center gap-1 cursor-pointer"
+                        >
+                          <LogOut className="w-3 h-3" />
+                          <span>Keluar</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : isMultiplayer ? (
                 mpRole === 'impostor' ? (
                   <>
                     <div className="space-y-1.5">
@@ -551,8 +797,31 @@ export const HUD: React.FC<HUDProps> = ({
                         }}
                       />
                     </div>
-                    <p className="text-[11px] font-mono-num text-emerald-300">
-                      Misi Kamu: {mpDoneSet.size} · Kru Hidup: {mpSnapshot?.players.filter((p) => p.alive).length || 0}
+                    {mpRole === 'peramal' && (
+                      <div className="bg-violet-500/15 border border-violet-400/40 rounded-lg px-2 py-1 text-[10px] text-violet-200">
+                        Peramal: Terawang 1 pemain saat Emergency Meeting!
+                      </div>
+                    )}
+                    <div className="space-y-1 max-h-28 overflow-y-auto sci-scroll pr-0.5">
+                      {(Object.keys(MISSION_META) as MissionId[]).map((mId) => {
+                        const meta = MISSION_META[mId];
+                        const done = mpDoneSet.has(mId);
+                        return (
+                          <div key={mId} className="flex items-start gap-1.5 text-[10px]">
+                            {done ? (
+                              <CheckCircle2 className="w-3.5 h-3.5 shrink-0 mt-0.5 text-emerald-400" />
+                            ) : (
+                              <Square className="w-3.5 h-3.5 shrink-0 mt-0.5 text-sky-400" />
+                            )}
+                            <span className={done ? 'line-through text-slate-400' : 'text-slate-200'}>
+                              {meta.title} ({ROOMS[meta.roomId].shortName})
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[10px] font-mono-num text-emerald-300 pt-0.5 border-t border-slate-800/80">
+                      Misi Kamu: {mpDoneSet.size}/{Object.keys(MISSION_META).length} · Hidup: {mpPlayers.filter((p) => p.alive).length}
                     </p>
                   </>
                 )
@@ -607,6 +876,16 @@ export const HUD: React.FC<HUDProps> = ({
                       );
                     })}
                   </div>
+                  {auliaQuest && auliaQuest.stage !== 'not_started' && auliaQuest.stage !== 'completed' && (
+                    <div className="bg-sky-500/15 border border-sky-400/40 rounded-lg px-2 py-1.5 text-[10px] text-sky-200 leading-snug">
+                      <span className="font-bold text-amber-300 block">Misi Rahasia Aulia:</span>
+                      {auliaQuest.stage === 'seeking_box'
+                        ? !auliaQuest.ladderPlaced
+                          ? 'Ke Cultural Room, pindahkan tangga lipat ke lemari tinggi.'
+                          : 'Panjat tangga & ambil kotak "Febriyani" di atas lemari.'
+                        : 'Bawa kotak "Febriyani" kembali kepada Aulia di Central Lobby.'}
+                    </div>
+                  )}
                   <div className="pt-1 border-t border-slate-800/80 flex items-center justify-between text-[10px] text-slate-400 font-mono-num">
                     <span>Misi {saveState.completedMissions.length}/10</span>
                     <span>Buku {readBookSet.size}/{THEORY_BOOKS.length}</span>
@@ -615,6 +894,16 @@ export const HUD: React.FC<HUDProps> = ({
                 </>
               ) : (
                 <div className="space-y-2">
+                  {auliaQuest && auliaQuest.stage !== 'not_started' && auliaQuest.stage !== 'completed' && (
+                    <div className="bg-sky-500/15 border border-sky-400/40 rounded-lg px-2 py-1.5 text-[10px] text-sky-200 leading-snug">
+                      <span className="font-bold text-amber-300 block">Misi Rahasia Aulia:</span>
+                      {auliaQuest.stage === 'seeking_box'
+                        ? !auliaQuest.ladderPlaced
+                          ? 'Ke Cultural Room, pindahkan tangga ke lemari tinggi.'
+                          : 'Panjat tangga & ambil kotak "Febriyani".'
+                        : 'Bawa kotak "Febriyani" ke Aulia di Central Lobby.'}
+                    </div>
+                  )}
                   <button
                     onClick={() => {
                       soundEngine.playClick();
@@ -634,17 +923,68 @@ export const HUD: React.FC<HUDProps> = ({
               )}
             </div>
           )}
+
+          {/* Expandable Lobby Chat Drawer inside 3D Waiting Lobby */}
+          {isMpWaitingLobby && lobbyChatOpen && onSendLobbyChat && (
+            <div className="border-t border-slate-800 bg-[#050a19]/95 p-2.5 space-y-2">
+              <div className="flex items-center justify-between text-[10px] font-bold text-sky-300 uppercase">
+                <span>Chat Lobby</span>
+                <button
+                  onClick={() => setLobbyChatOpen(false)}
+                  className="text-slate-400 hover:text-white cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <div className="max-h-28 overflow-y-auto sci-scroll space-y-1 text-[11px]">
+                {(mpSnapshot?.lobbyMessages || []).length === 0 ? (
+                  <p className="text-slate-500 text-[10px] italic">Belum ada pesan lobby.</p>
+                ) : (
+                  (mpSnapshot?.lobbyMessages || []).map((msg) => (
+                    <div key={msg.id} className="leading-snug">
+                      <span className="font-bold text-sky-300">{msg.senderName}: </span>
+                      <span className="text-slate-200 break-words">{msg.text}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const txt = lobbyChatInput.trim();
+                  if (!txt) return;
+                  onSendLobbyChat(txt);
+                  setLobbyChatInput('');
+                }}
+                className="flex gap-1"
+              >
+                <input
+                  type="text"
+                  maxLength={140}
+                  value={lobbyChatInput}
+                  onChange={(e) => setLobbyChatInput(e.target.value)}
+                  placeholder="Tulis pesan..."
+                  className="flex-1 min-w-0 bg-slate-900 border border-slate-700 focus:border-sky-400 rounded-lg px-2 py-1 text-[11px] text-white outline-none"
+                />
+                <button
+                  type="submit"
+                  className="px-2 py-1 rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 cursor-pointer shrink-0"
+                  title="Kirim Pesan"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                </button>
+              </form>
+            </div>
+          )}
         </div>
 
-        {/* TOP-CENTER: Compass, Current Room & MP Connection */}
+        {/* TOP-CENTER: Current Room & MP Connection (Compass Removed) */}
         <div className="hidden md:flex flex-col items-center bg-[#070d20]/92 border border-slate-700/80 rounded-xl px-4 py-1.5 shadow-lg">
-          <div className="flex items-center gap-2 text-xs text-sky-300 font-semibold">
-            <Compass className="w-3.5 h-3.5" />
-            <span>{compass.label}</span>
-            <span className="font-mono-num text-slate-400">{compass.deg}°</span>
+          <div className="flex items-center gap-2 text-xs font-medium text-white">
+            <span className="truncate max-w-[210px]">{hud.currentRoomName}</span>
             {isMultiplayer && (
               <span
-                className={`ml-1 inline-flex items-center gap-1 text-[11px] ${
+                className={`inline-flex items-center gap-1 text-[11px] font-semibold ${
                   mpStatus === 'connected'
                     ? 'text-emerald-400'
                     : mpConnectionLost
@@ -663,9 +1003,11 @@ export const HUD: React.FC<HUDProps> = ({
               </span>
             )}
           </div>
-          <p className="text-[11px] font-medium text-white truncate max-w-[220px]">
-            {hud.currentRoomName}
-          </p>
+          {isMpWaitingLobby && (
+            <span className="text-[10px] font-bold uppercase tracking-wider text-amber-300">
+              Menunggu Host Memulai
+            </span>
+          )}
         </div>
 
         {/* TOP-RIGHT: Voice Chat + Music + Map + Minimap + Action Controls */}
@@ -788,15 +1130,15 @@ export const HUD: React.FC<HUDProps> = ({
                   soundEngine.playClick();
                   onToggleCameraMode();
                 }}
-                className={`touch-control px-2.5 py-2 rounded-xl border flex items-center justify-center gap-1 text-[11px] font-bold cursor-pointer ${
+                className={`touch-control p-2 rounded-xl border flex items-center justify-center cursor-pointer ${
                   cameraMode === 'topdown'
                     ? 'bg-sky-500 border-sky-300 text-slate-950'
                     : 'bg-[#070d20]/90 hover:bg-slate-800 border-slate-700 text-sky-200'
                 }`}
-                title={cameraMode === 'topdown' ? 'Beralih ke Kamera 360°' : 'Beralih ke Kamera Top-Down'}
+                title={cameraMode === 'topdown' ? 'Kamera: Top-Down (Klik untuk 360°)' : 'Kamera: 360° (Klik untuk Top-Down)'}
+                aria-label="Ganti Mode Kamera"
               >
                 <Eye className="w-4 h-4" />
-                <span className="hidden sm:inline">{cameraMode === 'topdown' ? 'Top-Down' : '360°'}</span>
               </button>
             )}
             {onOpenRanking && (
@@ -812,7 +1154,7 @@ export const HUD: React.FC<HUDProps> = ({
                 <Trophy className="w-4 h-4" />
               </button>
             )}
-            {!isMultiplayer && (
+            {!isMultiplayer ? (
               <button
                 onClick={() => {
                   soundEngine.playClick();
@@ -823,7 +1165,18 @@ export const HUD: React.FC<HUDProps> = ({
               >
                 <Package className="w-4 h-4" />
               </button>
-            )}
+            ) : isMpWaitingLobby && onOpenCustomize ? (
+              <button
+                onClick={() => {
+                  soundEngine.playClick();
+                  onOpenCustomize();
+                }}
+                className="touch-control p-2 rounded-xl bg-[#070d20]/90 hover:bg-slate-800 border border-sky-500/40 text-sky-300 flex items-center justify-center cursor-pointer"
+                title="Kustomisasi Karakter"
+              >
+                <Palette className="w-4 h-4" />
+              </button>
+            ) : null}
             <button
               onClick={() => {
                 soundEngine.playClick();
@@ -988,8 +1341,10 @@ export const HUD: React.FC<HUDProps> = ({
                       {musicPlayback.ended
                         ? 'Selesai'
                         : musicPlayback.isPreview
-                          ? 'Cuplikan Resmi'
-                          : 'Audio Stasiun'}
+                          ? 'Preview 30 dtk'
+                          : musicPlayback.isExternal
+                            ? 'Full Song Online'
+                            : 'Audio Stasiun'}
                     </span>
                     <span>
                       {`${Math.floor(musicPlayback.durationSec / 60)}:${String(
@@ -1574,7 +1929,49 @@ export const HUD: React.FC<HUDProps> = ({
               </button>
             )}
 
-            {hud.nearbyEmergencyConsole && amAlive && onCallMeeting && (
+            {isMpWaitingLobby && hud.nearbyCustomizeTerminal && onInteractCustomizeTerminal && (
+              <button
+                onClick={() => {
+                  soundEngine.playInteract();
+                  onInteractCustomizeTerminal();
+                }}
+                className="pointer-events-auto min-h-[44px] flex items-center gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-sky-400 hover:bg-sky-300 text-slate-950 font-display font-bold text-[11px] sm:text-xs md:text-sm shadow-xl cursor-pointer"
+              >
+                <Palette className="w-4 h-4 shrink-0" />
+                <span className="truncate">
+                  {hud.isTouchDevice
+                    ? 'Tap Terminal Kustomisasi'
+                    : 'Tekan E — Terminal Kustomisasi'}
+                </span>
+              </button>
+            )}
+
+            {!isMultiplayer && hud.nearbyAuliaInteract && onInteractAulia && (
+              <button
+                onClick={() => {
+                  soundEngine.playInteract();
+                  onInteractAulia(hud.nearbyAuliaInteract!);
+                }}
+                className="pointer-events-auto min-h-[44px] flex items-center gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-blue-500 hover:bg-blue-400 text-white font-display font-bold text-[11px] sm:text-xs md:text-sm shadow-xl cursor-pointer"
+              >
+                <Hand className="w-4 h-4 shrink-0" />
+                <span className="truncate">
+                  {hud.nearbyAuliaInteract === 'aulia_ladder_move'
+                    ? hud.isTouchDevice
+                      ? 'Tap Pindahkan Tangga ke Lemari'
+                      : 'Tekan E — Pindahkan Tangga ke Lemari'
+                    : hud.nearbyAuliaInteract === 'aulia_climb_box'
+                      ? hud.isTouchDevice
+                        ? 'Tap Panjat & Ambil Kotak "Febriyani"'
+                        : 'Tekan E — Panjat & Ambil Kotak "Febriyani"'
+                      : hud.isTouchDevice
+                        ? 'Tap Berikan Kotak ke Aulia'
+                        : 'Tekan E — Berikan Kotak ke Aulia'}
+                </span>
+              </button>
+            )}
+
+            {hud.nearbyEmergencyConsole && !isMpWaitingLobby && amAlive && onCallMeeting && (
               <button
                 onClick={() => {
                   soundEngine.playInteract();

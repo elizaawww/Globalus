@@ -293,8 +293,20 @@ export const MusicSearchModal: React.FC<MusicSearchModalProps> = ({
           {playback.isExternal && settings.selectedExternalTrack && (
             <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
               <span>
-                Audio sumber iTunes berdurasi pratinjau resmi (~{Math.round(playback.durationSec)} dtk · durasi lagu penuh{' '}
-                {formatTimeSec((settings.selectedExternalTrack.durationMs || 30000) / 1000)})
+                {settings.selectedExternalTrack.isPreview ? (
+                  <>
+                    Pratinjau resmi iTunes (~{Math.round(playback.durationSec)} dtk · durasi lagu penuh{' '}
+                    {formatTimeSec((settings.selectedExternalTrack.durationMs || 30000) / 1000)})
+                  </>
+                ) : (
+                  <>
+                    Lagu penuh resmi via{' '}
+                    <strong className="text-emerald-300">
+                      {settings.selectedExternalTrack.source === 'jamendo' ? 'Jamendo' : 'Audius'}
+                    </strong>{' '}
+                    · Durasi {formatTimeSec(playback.durationSec)}
+                  </>
+                )}
               </span>
               {playback.ended && (
                 <span className="text-emerald-300 font-semibold">
@@ -311,10 +323,10 @@ export const MusicSearchModal: React.FC<MusicSearchModalProps> = ({
           <div className="space-y-3">
             <div>
               <h3 className="text-xs font-bold uppercase tracking-wider text-sky-300">
-                Cari Lagu Online (Pratinjau Resmi iTunes)
+                Cari Lagu Online (Lagu Penuh &amp; Pratinjau Resmi)
               </h3>
               <p className="text-[11px] text-slate-400">
-                Diputar utuh sesuai durasi audio yang tersedia dari awal sampai selesai (volume otomatis mengecil saat dialog atau voice chat).
+                Memprioritaskan pemutaran penuh dari awal sampai selesai tanpa pengulangan paksa; jika hanya pratinjau yang tersedia akan ditandai jelas.
               </p>
             </div>
 
@@ -323,7 +335,7 @@ export const MusicSearchModal: React.FC<MusicSearchModalProps> = ({
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Cari judul lagu atau artis (mis. Lofi, BTS, Gamelan, Space)..."
+                placeholder="Cari judul lagu atau artis (mis. Lofi, Synthwave, Gamelan, Pop)..."
                 className="flex-1 px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 focus:border-sky-400 outline-none text-xs sm:text-sm text-white"
               />
               <button
@@ -345,7 +357,7 @@ export const MusicSearchModal: React.FC<MusicSearchModalProps> = ({
 
             {hasSearched && !searching && !searchError && results.length === 0 && (
               <p className="text-xs text-slate-400 bg-slate-900/60 border border-slate-800 rounded-xl p-3">
-                Tidak ada pratinjau lagu yang cocok dengan pencarian tersebut.
+                Tidak ada lagu yang cocok dengan pencarian tersebut.
               </p>
             )}
 
@@ -353,7 +365,16 @@ export const MusicSearchModal: React.FC<MusicSearchModalProps> = ({
               <div className="space-y-2 max-h-56 overflow-y-auto sci-scroll pr-1">
                 {results.map((track) => {
                   const selected = settings.selectedExternalTrack?.id === track.id;
-                  const sampleSec = Math.round((track.previewDurationMs || 30000) / 1000);
+                  const isPreview = Boolean(track.isPreview);
+                  const shownSec = isPreview
+                    ? Math.round((track.previewDurationMs || 30000) / 1000)
+                    : Math.round((track.durationMs || 0) / 1000);
+                  const sourceTag =
+                    track.source === 'jamendo'
+                      ? 'Jamendo · Full'
+                      : track.source === 'audius'
+                        ? 'Audius · Full'
+                        : `iTunes · Preview ${shownSec}s`;
                   return (
                     <div
                       key={track.id}
@@ -374,10 +395,22 @@ export const MusicSearchModal: React.FC<MusicSearchModalProps> = ({
                           </div>
                         )}
                         <div className="min-w-0">
-                          <p className="text-xs font-bold text-white truncate">{track.title}</p>
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <p className="text-xs font-bold text-white truncate">{track.title}</p>
+                            <span
+                              className={`text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 ${
+                                isPreview
+                                  ? 'bg-amber-500/20 text-amber-300'
+                                  : 'bg-emerald-500/20 text-emerald-300'
+                              }`}
+                            >
+                              {isPreview ? 'Preview' : 'Full Song'}
+                            </span>
+                          </div>
                           <p className="text-[11px] text-slate-400 truncate">
                             {track.artist}
-                            {track.album ? ` · ${track.album}` : ''} · Sampel {sampleSec}s
+                            {track.album ? ` · ${track.album}` : ''} · {sourceTag}
+                            {!isPreview && shownSec > 0 ? ` · ${formatTimeSec(shownSec)}` : ''}
                           </p>
                         </div>
                       </div>

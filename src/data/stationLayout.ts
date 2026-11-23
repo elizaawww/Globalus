@@ -507,6 +507,7 @@ export const PROP_COLLIDERS: PropCollider[] = [
   { id: 'lobby_plant_e', minX: 7.35, maxX: 8.25, minZ: -5.05, maxZ: -4.15 },
   { id: 'lobby_locker_nw', minX: 7.45, maxX: 8.35, minZ: 4.1, maxZ: 5.3 },
   { id: 'lobby_secret_tv', minX: -3.9, maxX: -2.6, minZ: 6.45, maxZ: 7.45 },
+  { id: 'lobby_customize_term', minX: 4.55, maxX: 5.45, minZ: 3.15, maxZ: 4.05 },
 
   // Communication Room
   { id: 'comm_desk_w', minX: -23.9, maxX: -21.2, minZ: -18.0, maxZ: -14.8 },
@@ -540,6 +541,7 @@ export const PROP_COLLIDERS: PropCollider[] = [
   { id: 'cult_holo_c', minX: 17.3, maxX: 18.7, minZ: -15.2, maxZ: -13.8 },
   { id: 'cult_books_se', minX: 21.85, maxX: 24.35, minZ: -11.55, maxZ: -10.65 },
   { id: 'cult_pedestal_n', minX: 15.1, maxX: 16.3, minZ: -21.2, maxZ: -20.0 },
+  { id: 'cult_aulia_cabinet', minX: 18.65, maxX: 20.15, minZ: -21.75, maxZ: -20.75 },
 
   // Economic Room
   { id: 'econ_desk_w', minX: 12.1, maxX: 14.3, minZ: 17.0, maxZ: 19.8 },

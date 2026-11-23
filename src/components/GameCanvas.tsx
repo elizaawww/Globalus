@@ -35,6 +35,7 @@ import {
   StationWorld,
 } from '../three/stationBuilder';
 import {
+  AuliaSecretQuestState,
   ChapterId,
   CharacterAnimState,
   CharacterConfig,
@@ -44,6 +45,7 @@ import {
   EmoteId,
   GameSettings,
   MissionId,
+  MultiplayerPhase,
   MultiplayerRole,
   NpcCharacterId,
   RemotePlayerPublic,
@@ -82,6 +84,8 @@ export interface HudLiveState {
   } | null;
   nearbyEmergencyConsole: boolean;
   nearbySecretTv: boolean;
+  nearbyCustomizeTerminal: boolean;
+  nearbyAuliaInteract: 'aulia_talk' | 'aulia_ladder_move' | 'aulia_climb_box' | null;
   nearbyEliminateTarget: {
     id: string;
     name: string;
@@ -102,6 +106,7 @@ interface GameCanvasProps {
   activeTheoryBook?: TheoryBookId | null;
   activeCutscene: CutsceneCharacterId | null;
   activeCutsceneLine?: CutsceneLine | null;
+  auliaQuest?: AuliaSecretQuestState;
   isPaused: boolean;
   joystickInputRef: React.MutableRefObject<{ x: number; y: number }>;
   triggerJumpRef?: React.MutableRefObject<(() => void) | null>;
@@ -112,6 +117,7 @@ interface GameCanvasProps {
   teleportPos: { x: number; z: number; tick: number; skipAnim?: boolean; yaw?: number } | null;
   // Multiplayer props
   isMultiplayer?: boolean;
+  mpPhase?: MultiplayerPhase | null;
   myPlayerId?: string | null;
   myRole?: MultiplayerRole | null;
   amAlive?: boolean;
@@ -147,6 +153,8 @@ interface GameCanvasProps {
   onInteractBook?: (bookId: TheoryBookId) => void;
   onInteractVent?: (ventId: string) => void;
   onInteractSecretTv?: () => void;
+  onInteractCustomizeTerminal?: () => void;
+  onInteractAulia?: (action: 'aulia_talk' | 'aulia_ladder_move' | 'aulia_climb_box') => void;
   onReportStasisPod?: (podId: string) => void;
   onLockedDoorBlocked?: (reason: 'chapter_locked' | 'completed_locked', doorLabel: string) => void;
 }
@@ -165,9 +173,108 @@ const _csActorHead = new THREE.Vector3();
 const _csExtraHead = new THREE.Vector3();
 const _csBestCandidate = new THREE.Vector3();
 const _tmpColor = new THREE.Color();
+const _neutralLightColor = new THREE.Color(0xf1f5f9);
 const _doneSet = new Set<MissionId>();
 const _readBookSet = new Set<TheoryBookId>();
 const _sparklePos = new THREE.Vector3();
+
+const LOBBY_CREW_DEFS: Array<{
+  id: 'aulia' | 'dani' | 'sari' | 'raka';
+  config: CharacterConfig;
+  subtitle: string;
+  speed: number;
+  dwellDuration: number;
+  waypoints: Array<{ x: number; z: number; yaw: number; action: 'work' | 'panic_or_work' | 'inspect' | 'coordinate' }>;
+}> = [
+  {
+    id: 'aulia',
+    config: {
+      name: 'Aulia',
+      color: 'hijau',
+      helmet: 'standard_visor',
+      costume: 'standard_crew',
+      head: 'headset',
+      body: 'backpack',
+      neck: 'none',
+    },
+    subtitle: 'Analis Budaya',
+    speed: 1.6,
+    dwellDuration: 4.5,
+    waypoints: [
+      { x: -5.6, z: -4.15, yaw: Math.PI, action: 'panic_or_work' },
+      { x: -2.6, z: -4.15, yaw: Math.PI, action: 'work' },
+      { x: -4.2, z: -2.4, yaw: Math.PI * 0.25, action: 'inspect' },
+    ],
+  },
+  {
+    id: 'dani',
+    config: {
+      name: 'Dani',
+      color: 'orange',
+      helmet: 'cyber_recon',
+      costume: 'tactical_armor',
+      head: 'none',
+      body: 'backpack',
+      neck: 'none',
+    },
+    subtitle: 'Teknisi Medis',
+    speed: 1.75,
+    dwellDuration: 4.1,
+    waypoints: [
+      { x: 4.3, z: -5.0, yaw: Math.PI, action: 'work' },
+      { x: 6.2, z: -4.8, yaw: Math.PI, action: 'panic_or_work' },
+      { x: 3.5, z: -2.8, yaw: -Math.PI * 0.35, action: 'inspect' },
+    ],
+  },
+  {
+    id: 'sari',
+    config: {
+      name: 'Sari',
+      color: 'ungu',
+      helmet: 'explorer_dome',
+      costume: 'standard_crew',
+      head: 'none',
+      body: 'none',
+      neck: 'kalung',
+    },
+    subtitle: 'Kru Observasi',
+    speed: 1.55,
+    dwellDuration: 4.8,
+    waypoints: [
+      { x: 5.4, z: 3.5, yaw: -Math.PI * 0.72, action: 'coordinate' },
+      { x: 2.5, z: 3.8, yaw: -Math.PI * 0.85, action: 'panic_or_work' },
+      { x: 4.9, z: 1.8, yaw: -Math.PI * 0.55, action: 'inspect' },
+    ],
+  },
+  {
+    id: 'raka',
+    config: {
+      name: 'Raka',
+      color: 'biru',
+      helmet: 'standard_visor',
+      costume: 'tactical_armor',
+      head: 'aksesori_antariksa',
+      body: 'jaket_astronaut',
+      neck: 'none',
+    },
+    subtitle: 'Navigasi Sektor',
+    speed: 1.65,
+    dwellDuration: 4.3,
+    waypoints: [
+      { x: -3.6, z: 3.6, yaw: Math.PI * 0.75, action: 'work' },
+      { x: -6.1, z: 2.7, yaw: Math.PI, action: 'panic_or_work' },
+      { x: -3.3, z: 1.8, yaw: Math.PI * 0.5, action: 'inspect' },
+    ],
+  },
+];
+
+const AULIA_FOLLOW_SPARKLE_PATH = [
+  { x: 8.5, y: 1.48, z: 0 },
+  { x: 14.5, y: 1.45, z: -1.5 },
+  { x: 18.0, y: 1.48, z: -10.0 },
+  { x: 18.6, y: 1.9, z: -16.5 },
+  { x: 19.4, y: 2.78, z: -20.85 },
+];
 
 const CS_ORBIT_ANGLES_RAD = [
   0,
@@ -453,6 +560,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   activeTheoryBook = null,
   activeCutscene,
   activeCutsceneLine,
+  auliaQuest,
   isPaused,
   joystickInputRef,
   triggerJumpRef,
@@ -462,6 +570,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   resetCameraTick,
   teleportPos,
   isMultiplayer = false,
+  mpPhase = null,
   myPlayerId = null,
   myRole = null,
   amAlive = true,
@@ -477,12 +586,15 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   onInteractBook,
   onInteractVent,
   onInteractSecretTv,
+  onInteractCustomizeTerminal,
+  onInteractAulia,
   onReportStasisPod,
   onLockedDoorBlocked,
 }) => {
   const mountRef = useRef<HTMLDivElement>(null);
   const [webglError, setWebglError] = useState(false);
   const [contextLost, setContextLost] = useState(false);
+  const [sceneReadyTick, setSceneReadyTick] = useState(0);
 
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
@@ -518,7 +630,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   const lockedDoorCollidersRef = useRef<PropCollider[]>([]);
 
   useEffect(() => {
-    lockedDoorCollidersRef.current = getLockedDoorColliders(lockedRooms, chapterLockedDoorIds);
+    const mpLobbyDoors = isMultiplayer && mpPhase === 'lobby' ? ['door_w1', 'door_e1', 'door_n1'] : [];
+    const effectiveChapDoors = Array.from(new Set([...chapterLockedDoorIds, ...mpLobbyDoors]));
+    lockedDoorCollidersRef.current = getLockedDoorColliders(
+      isMultiplayer && mpPhase === 'lobby' ? [] : lockedRooms,
+      effectiveChapDoors
+    );
     completedLockedRoomSetRef.current = new Set(lockedRooms);
     const compDoors = new Set<string>();
     lockedRooms.forEach((rid) => {
@@ -526,17 +643,21 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       if (rm && !rm.neverLock && rm.doorId) compDoors.add(rm.doorId);
     });
     completedDoorIdSetRef.current = compDoors;
-    chapterLockedDoorSetRef.current = new Set(chapterLockedDoorIds);
-  }, [lockedRooms, chapterLockedDoorIds]);
+    chapterLockedDoorSetRef.current = new Set(effectiveChapDoors);
+  }, [lockedRooms, chapterLockedDoorIds, isMultiplayer, mpPhase]);
 
   const activeCutsceneRef = useRef(activeCutscene);
   activeCutsceneRef.current = activeCutscene;
   const activeCutsceneLineRef = useRef(activeCutsceneLine);
   activeCutsceneLineRef.current = activeCutsceneLine;
+  const auliaQuestRef = useRef<AuliaSecretQuestState | undefined>(auliaQuest);
+  auliaQuestRef.current = auliaQuest;
   const isPausedRef = useRef(isPaused);
   isPausedRef.current = isPaused;
   const isMultiplayerRef = useRef(isMultiplayer);
   isMultiplayerRef.current = isMultiplayer;
+  const mpPhaseRef = useRef<MultiplayerPhase | null>(mpPhase ?? null);
+  mpPhaseRef.current = mpPhase ?? null;
   const myRoleRef = useRef(myRole);
   myRoleRef.current = myRole;
   const amAliveRef = useRef(amAlive);
@@ -556,6 +677,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   onInteractVentRef.current = onInteractVent;
   const onInteractSecretTvRef = useRef(onInteractSecretTv);
   onInteractSecretTvRef.current = onInteractSecretTv;
+  const onInteractCustomizeTerminalRef = useRef(onInteractCustomizeTerminal);
+  onInteractCustomizeTerminalRef.current = onInteractCustomizeTerminal;
+  const onInteractAuliaRef = useRef(onInteractAulia);
+  onInteractAuliaRef.current = onInteractAulia;
   const onReportPodRef = useRef(onReportStasisPod);
   onReportPodRef.current = onReportStasisPod;
   const onSendMoveRef = useRef(onSendMove);
@@ -577,9 +702,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   const camPitchRef = useRef(0.42);
   const camDistRef = useRef(6.8);
   const worldRef = useRef<StationWorld | null>(null);
-  const npcRigsRef = useRef<Array<{ id: NpcCharacterId | 'companion'; rig: CharacterRig; targetPos: THREE.Vector3 }>>([]);
+  const npcRigsRef = useRef<Array<{ id: string; rig: CharacterRig; targetPos: THREE.Vector3 }>>([]);
   const idleCrewRigsRef = useRef<
     Array<{
+      id: 'aulia' | 'dani' | 'sari' | 'raka';
       rig: CharacterRig;
       waypoints: Array<{ x: number; z: number; yaw: number; action: 'work' | 'panic_or_work' | 'inspect' | 'coordinate' }>;
       waypointIdx: number;
@@ -608,10 +734,15 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   const nearbyVentRef = useRef<HudLiveState['nearbyVent']>(null);
   const nearbyPodRef = useRef<HudLiveState['nearbyStasisPod']>(null);
   const nearbySecretTvRef = useRef(false);
+  const nearbyCustomizeRef = useRef(false);
+  const nearbyAuliaRef = useRef<'aulia_talk' | 'aulia_ladder_move' | 'aulia_climb_box' | null>(null);
   const isTouchDeviceRef = useRef(
     typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0)
   );
-  const hoveredTargetRef = useRef<{ type: 'book' | 'terminal' | 'vent' | 'secret_tv'; id: string } | null>(null);
+  const hoveredTargetRef = useRef<{
+    type: 'book' | 'terminal' | 'vent' | 'secret_tv' | 'customize_terminal' | 'aulia_ladder' | 'aulia_box';
+    id: string;
+  } | null>(null);
 
   const localSpeakingRef = useRef(localSpeaking);
   localSpeakingRef.current = localSpeaking;
@@ -751,7 +882,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     newRig.root.rotation.y = playerYawRef.current;
     playerRigRef.current = newRig;
     scene.add(newRig.root);
-  }, [character, isMultiplayer, amAlive]);
+  }, [character, isMultiplayer, amAlive, sceneReadyTick]);
 
   // Sync remote multiplayer players into 3D scene
   useEffect(() => {
@@ -834,7 +965,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         map.delete(id);
       }
     });
-  }, [isMultiplayer, remotePlayers, myPlayerId, remoteMoveBufferRef]);
+  }, [isMultiplayer, remotePlayers, myPlayerId, remoteMoveBufferRef, sceneReadyTick]);
 
   // Spawn non-graphic futuristic hologram stasis VFX once per deduplicated EliminationEvent
   useEffect(() => {
@@ -934,7 +1065,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         map.delete(id);
       }
     });
-  }, [stasisPods]);
+  }, [stasisPods, sceneReadyTick]);
 
   // Manage NPC spawning & unobstructed staging strictly during active cutscenes
   useEffect(() => {
@@ -964,11 +1095,42 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         camYawRef.current = Math.PI * 0.9;
         camPitchRef.current = 0.42;
         camDistRef.current = 6.2;
+      } else if (prevCs === 'aulia_febriyani') {
+        playerPosRef.current.set(19.4, 0, -19.2);
+        lastSafePosRef.current = { x: 19.4, z: -19.2 };
+        playerYawRef.current = 0;
       }
       return;
     }
 
-    if (activeCutscene === 'prolog') {
+    if (activeCutscene === 'aulia_collapse' || activeCutscene === 'aulia_open') {
+      playerPosRef.current.set(-1.35, 0, 2.55);
+      playerYawRef.current = -Math.PI * 0.65;
+      const crewPos: Record<'aulia' | 'dani' | 'sari' | 'raka', { x: number; z: number; yaw: number }> = {
+        aulia: { x: -3.55, z: 2.2, yaw: 0.35 },
+        dani: { x: -4.45, z: 1.55, yaw: 0.85 },
+        sari: { x: -2.9, z: 1.2, yaw: -0.45 },
+        raka: { x: -4.55, z: 2.95, yaw: 2.3 },
+      };
+      LOBBY_CREW_DEFS.forEach((def) => {
+        const rig = buildAstronautRig(def.config, {
+          showNameplate: true,
+          nameplateSubtitle: def.subtitle,
+        });
+        const pos = crewPos[def.id];
+        rig.root.position.set(pos.x, 0, pos.z);
+        rig.root.rotation.y = pos.yaw;
+        scene.add(rig.root);
+        npcRigsRef.current.push({
+          id: def.id,
+          rig,
+          targetPos: new THREE.Vector3(pos.x, 0, pos.z),
+        });
+      });
+    } else if (activeCutscene === 'aulia_febriyani') {
+      playerPosRef.current.set(19.4, 0.25, -20.05);
+      playerYawRef.current = Math.PI;
+    } else if (activeCutscene === 'prolog') {
       const initPhase = activeCutsceneLineRef.current?.scenePhase;
       if (initPhase === 'sparkle_follow') {
         playerPosRef.current.set(-5.4, 0, 0.2);
@@ -1076,7 +1238,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         { id: 'ratu_laras', rig: laras, targetPos: new THREE.Vector3(3.2, 0, -58.4) }
       );
     }
-  }, [activeCutscene]);
+  }, [activeCutscene, sceneReadyTick]);
 
   useEffect(() => {
     const container = mountRef.current;
@@ -1113,8 +1275,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     }
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x040713);
-    scene.fog = new THREE.FogExp2(0x040713, 0.0082);
+    scene.background = new THREE.Color(0x05070c);
+    scene.fog = new THREE.FogExp2(0x05070c, 0.0075);
     sceneRef.current = scene;
 
     applyWebKitSafeEnvironment(renderer, scene, isSoftwareGl);
@@ -1126,7 +1288,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       360
     );
 
-    const hemiLight = new THREE.HemisphereLight(0x93c5fd, 0x0f172a, 0.82);
+    const hemiLight = new THREE.HemisphereLight(0xe2e8f0, 0x1a202c, 0.88);
     scene.add(hemiLight);
 
     const keyLight = new THREE.DirectionalLight(0xfff7ed, 1.38);
@@ -1143,7 +1305,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     }
     scene.add(keyLight);
 
-    const rimLight = new THREE.DirectionalLight(0x38bdf8, 0.7);
+    const rimLight = new THREE.DirectionalLight(0xcbd5e1, 0.62);
     rimLight.position.set(-20, 14, -22);
     scene.add(rimLight);
 
@@ -1156,6 +1318,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           ? Math.min(world.maxStars, 360)
           : world.maxStars;
     worldRef.current = world;
+    setSceneReadyTick((t) => t + 1);
 
     const playerRig = buildAstronautRig(characterRef.current, {
       ghostMode: isMultiplayerRef.current && !amAliveRef.current,
@@ -1170,92 +1333,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     sparkleGuideRef.current = sparkleGuide;
     scene.add(sparkleGuide.group);
 
-    // Live Solo Central Lobby Crewmates (patrolling & inspecting stations; hidden in multiplayer/cutscenes)
-    const liveLobbyDefs: Array<{
-      config: CharacterConfig;
-      subtitle: string;
-      speed: number;
-      dwellDuration: number;
-      waypoints: Array<{ x: number; z: number; yaw: number; action: 'work' | 'panic_or_work' | 'inspect' | 'coordinate' }>;
-    }> = [
-      {
-        config: {
-          name: 'Aulia',
-          color: 'hijau',
-          helmet: 'standard_visor',
-          costume: 'standard_crew',
-          head: 'headset',
-          body: 'backpack',
-          neck: 'none',
-        },
-        subtitle: 'Teknisi Radar',
-        speed: 1.6,
-        dwellDuration: 4.5,
-        waypoints: [
-          { x: -5.6, z: -4.15, yaw: Math.PI, action: 'panic_or_work' },
-          { x: -2.6, z: -4.15, yaw: Math.PI, action: 'work' },
-          { x: -4.2, z: -2.4, yaw: Math.PI * 0.25, action: 'inspect' },
-        ],
-      },
-      {
-        config: {
-          name: 'Dani',
-          color: 'orange',
-          helmet: 'cyber_recon',
-          costume: 'tactical_armor',
-          head: 'none',
-          body: 'backpack',
-          neck: 'none',
-        },
-        subtitle: 'Analis Jaringan',
-        speed: 1.75,
-        dwellDuration: 4.1,
-        waypoints: [
-          { x: 4.3, z: -5.0, yaw: Math.PI, action: 'work' },
-          { x: 6.2, z: -4.8, yaw: Math.PI, action: 'panic_or_work' },
-          { x: 3.5, z: -2.8, yaw: -Math.PI * 0.35, action: 'inspect' },
-        ],
-      },
-      {
-        config: {
-          name: 'Sari',
-          color: 'ungu',
-          helmet: 'explorer_dome',
-          costume: 'standard_crew',
-          head: 'none',
-          body: 'none',
-          neck: 'kalung',
-        },
-        subtitle: 'Koordinator Dek',
-        speed: 1.55,
-        dwellDuration: 4.8,
-        waypoints: [
-          { x: 5.4, z: 3.5, yaw: -Math.PI * 0.72, action: 'coordinate' },
-          { x: 2.5, z: 3.8, yaw: -Math.PI * 0.85, action: 'panic_or_work' },
-          { x: 4.9, z: 1.8, yaw: -Math.PI * 0.55, action: 'inspect' },
-        ],
-      },
-      {
-        config: {
-          name: 'Raka',
-          color: 'biru',
-          helmet: 'standard_visor',
-          costume: 'tactical_armor',
-          head: 'aksesori_antariksa',
-          body: 'jaket_astronaut',
-          neck: 'none',
-        },
-        subtitle: 'Teknisi Sistem',
-        speed: 1.65,
-        dwellDuration: 4.3,
-        waypoints: [
-          { x: -3.6, z: 3.6, yaw: Math.PI * 0.75, action: 'work' },
-          { x: -6.1, z: 2.7, yaw: Math.PI, action: 'panic_or_work' },
-          { x: -3.3, z: 1.8, yaw: Math.PI * 0.5, action: 'inspect' },
-        ],
-      },
-    ];
-    idleCrewRigsRef.current = liveLobbyDefs.map((def, idx) => {
+    idleCrewRigsRef.current = LOBBY_CREW_DEFS.map((def, idx) => {
       const rig = buildAstronautRig(def.config, {
         showNameplate: true,
         nameplateSubtitle: def.subtitle,
@@ -1266,6 +1344,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       rig.root.visible = !isMultiplayerRef.current && !activeCutsceneRef.current;
       scene.add(rig.root);
       return {
+        id: def.id,
         rig,
         waypoints: def.waypoints,
         waypointIdx: 0,
@@ -1317,6 +1396,23 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           soundEngine.playInteract();
           interactAnimUntilRef.current = performance.now() + 450;
           onInteractVentRef.current(nearbyVentRef.current.id);
+          return;
+        }
+        if (
+          nearbyCustomizeRef.current &&
+          isMultiplayerRef.current &&
+          mpPhaseRef.current === 'lobby' &&
+          onInteractCustomizeTerminalRef.current
+        ) {
+          soundEngine.playInteract();
+          interactAnimUntilRef.current = performance.now() + 450;
+          onInteractCustomizeTerminalRef.current();
+          return;
+        }
+        if (nearbyAuliaRef.current && !isMultiplayerRef.current && onInteractAuliaRef.current) {
+          soundEngine.playInteract();
+          interactAnimUntilRef.current = performance.now() + 450;
+          onInteractAuliaRef.current(nearbyAuliaRef.current);
           return;
         }
         if (nearbySecretTvRef.current && !isMultiplayerRef.current && onInteractSecretTvRef.current) {
@@ -1372,10 +1468,20 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       );
       _hoverRaycaster.setFromCamera(_hoverNdc, camera);
       const hits = _hoverRaycaster.intersectObjects(world.interactHitMeshes, false);
-      let nextHover: { type: 'book' | 'terminal' | 'vent' | 'secret_tv'; id: string } | null = null;
+      let nextHover: {
+        type: 'book' | 'terminal' | 'vent' | 'secret_tv' | 'customize_terminal' | 'aulia_ladder' | 'aulia_box';
+        id: string;
+      } | null = null;
       if (hits.length > 0 && hits[0].distance < 22) {
         const ud = hits[0].object.userData as {
-          interactType?: 'book' | 'terminal' | 'vent' | 'secret_tv';
+          interactType?:
+            | 'book'
+            | 'terminal'
+            | 'vent'
+            | 'secret_tv'
+            | 'customize_terminal'
+            | 'aulia_ladder'
+            | 'aulia_box';
           bookId?: string;
           roomId?: RoomId;
           ventId?: string;
@@ -1388,6 +1494,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           nextHover = { type: 'vent', id: ud.ventId };
         } else if (ud.interactType === 'secret_tv') {
           nextHover = { type: 'secret_tv', id: 'secret_tv' };
+        } else if (ud.interactType === 'customize_terminal') {
+          nextHover = { type: 'customize_terminal', id: 'customize_terminal' };
+        } else if (ud.interactType === 'aulia_ladder') {
+          nextHover = { type: 'aulia_ladder', id: 'aulia_ladder' };
+        } else if (ud.interactType === 'aulia_box') {
+          nextHover = { type: 'aulia_box', id: 'aulia_box' };
         }
       }
       hoveredTargetRef.current = nextHover;
@@ -1425,6 +1537,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       }
 
       if (activeCutsceneRef.current || isPausedRef.current) return;
+      postCutsceneGlideUntilRef.current = 0;
       const prev = activePointers.get(e.pointerId)!;
       if (activePointers.size === 1) {
         const dx = e.clientX - prev.x;
@@ -1479,6 +1592,25 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           soundEngine.playInteract();
           interactAnimUntilRef.current = performance.now() + 450;
           onInteractSecretTvRef.current();
+        } else if (
+          hit?.type === 'customize_terminal' &&
+          nearbyCustomizeRef.current &&
+          isMultiplayerRef.current &&
+          mpPhaseRef.current === 'lobby' &&
+          onInteractCustomizeTerminalRef.current
+        ) {
+          soundEngine.playInteract();
+          interactAnimUntilRef.current = performance.now() + 450;
+          onInteractCustomizeTerminalRef.current();
+        } else if (
+          (hit?.type === 'aulia_ladder' || hit?.type === 'aulia_box') &&
+          nearbyAuliaRef.current &&
+          !isMultiplayerRef.current &&
+          onInteractAuliaRef.current
+        ) {
+          soundEngine.playInteract();
+          interactAnimUntilRef.current = performance.now() + 450;
+          onInteractAuliaRef.current(nearbyAuliaRef.current);
         }
       }
     };
@@ -1558,7 +1690,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       let animState: CharacterAnimState = 'idle';
 
       // 1. Local Player Movement, Sprint & Blocked-Door Notification
-      const lockedBoxes = isMultiplayerRef.current ? undefined : lockedDoorCollidersRef.current;
+      const isMpLobby = isMultiplayerRef.current && mpPhaseRef.current === 'lobby';
+      const lockedBoxes =
+        !isMultiplayerRef.current || isMpLobby ? lockedDoorCollidersRef.current : undefined;
       if (!isPausedRef.current && !cs && !inVentRef.current) {
         let inputX = 0;
         let inputZ = 0;
@@ -1612,13 +1746,13 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           pPos.x = resolved.x;
           pPos.z = resolved.z;
 
-          if (!isMultiplayerRef.current && onLockedDoorBlockedRef.current) {
+          if ((!isMultiplayerRef.current || isMpLobby) && onLockedDoorBlockedRef.current) {
             const blockedAttempt = detectBlockedDoorAttempt(
               attemptX,
               attemptZ,
               0.48,
-              completedLockedRoomsRef.current,
-              chapterLockedDoorIdsRef.current
+              isMpLobby ? [] : completedLockedRoomsRef.current,
+              isMpLobby ? ['door_w1', 'door_e1', 'door_n1'] : chapterLockedDoorIdsRef.current
             );
             if (blockedAttempt) {
               const lastWarn = blockedDoorNoticeCooldown.get(blockedAttempt.doorId) || 0;
@@ -1668,7 +1802,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           pPos.x = lastSafePosRef.current.x;
           pPos.z = lastSafePosRef.current.z;
         }
-      } else {
+      } else if (cs !== 'aulia_febriyani') {
         pPos.y = 0;
         playerVelYRef.current = 0;
         isGroundedRef.current = true;
@@ -1684,11 +1818,53 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         animState = 'interact';
       }
 
-      // 2.5. Prolog Cutscene Choreography (Global Network -> Sparkle Spot -> Follow -> First Book)
+      // 2.5. Prolog & Aulia Secret Quest Cutscene Choreography
       let overrideCutsceneGesture: CutsceneLine['gesture'] | undefined =
         cs && csLine?.speakerId === 'player' ? csLine.gesture : undefined;
       let sparkleIntensity = 0;
       const prologPhase = cs === 'prolog' ? csLine?.scenePhase : undefined;
+
+      if (cs === 'aulia_collapse') {
+        const lineKey = `${cs}:${csLine?.scenePhase || 'story'}`;
+        if (prologLineKeyRef.current !== lineKey) {
+          prologLineKeyRef.current = lineKey;
+          prologLineElapsedRef.current = 0;
+        } else {
+          prologLineElapsedRef.current += dt;
+        }
+        const phaseT = prologLineElapsedRef.current;
+        const auliaPhase = csLine?.scenePhase;
+        if (auliaPhase === 'aulia_sparkle_spot') {
+          _sparklePos.set(8.5 + Math.sin(elapsed * 1.4) * 0.16, 1.48, Math.cos(elapsed * 1.8) * 0.22);
+          sparkleIntensity = THREE.MathUtils.clamp(phaseT / 0.4, 0.35, 1.0);
+          playerYawRef.current = lerpYaw(playerYawRef.current, Math.PI * 0.45, 1 - Math.exp(-8 * dt));
+        } else if (auliaPhase === 'aulia_sparkle_follow') {
+          const su = THREE.MathUtils.smoothstep(Math.min(1, phaseT / 3.4), 0, 1);
+          samplePath3D(AULIA_FOLLOW_SPARKLE_PATH, su, _sparklePos);
+          _sparklePos.y += Math.sin(elapsed * 3.5) * 0.08;
+          sparkleIntensity = 1.0;
+        } else if (auliaPhase === 'aulia_sparkle_cabinet') {
+          _sparklePos.set(
+            19.4 + Math.cos(elapsed * 2.0) * 0.16,
+            2.82 + Math.sin(elapsed * 2.6) * 0.05,
+            -21.1 + Math.sin(elapsed * 2.0) * 0.16
+          );
+          sparkleIntensity = 0.85;
+        }
+      } else if (cs === 'aulia_febriyani') {
+        pPos.x = 19.4;
+        pPos.z = -20.05;
+        playerYawRef.current = Math.PI;
+        if (cutsceneTimeRef.current < 0.72) {
+          const u = cutsceneTimeRef.current / 0.72;
+          pPos.y = THREE.MathUtils.lerp(0.2, 1.38, u);
+          animState = 'climb';
+          overrideCutsceneGesture = undefined;
+        } else {
+          pPos.y = 1.38;
+          animState = 'interact';
+        }
+      }
 
       if (cs === 'prolog') {
         const lineKey = `${cs}:${csLine?.scenePhase || csLine?.cameraFocus || 'story'}`;
@@ -1933,6 +2109,37 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         }
         npcRigsRef.current.forEach((npc) => {
           if (!npc.rig.root.visible) return;
+          if (cs === 'aulia_collapse' || cs === 'aulia_open') {
+            if (npc.id === 'aulia') {
+              const recovered = cs === 'aulia_open' && csLine?.speakerId === 'aulia' && cutsceneTimeRef.current > 1.8;
+              animateCharacterRig(
+                npc.rig,
+                elapsed,
+                recovered ? 'idle' : 'collapse',
+                dt,
+                recovered && csLine?.speakerId === 'aulia' ? csLine?.gesture : undefined
+              );
+              return;
+            }
+            if (npc.id === 'dani') {
+              animateCharacterRig(npc.rig, elapsed, 'crouch_check', dt);
+              return;
+            }
+            if (npc.id === 'sari') {
+              animateCharacterRig(npc.rig, elapsed, 'shock_cover', dt);
+              return;
+            }
+            if (npc.id === 'raka') {
+              animateCharacterRig(
+                npc.rig,
+                elapsed,
+                'idle',
+                dt,
+                csLine?.speakerId === 'raka' ? csLine.gesture : 'panic'
+              );
+              return;
+            }
+          }
           const dist = npc.rig.root.position.distanceTo(npc.targetPos);
           const npcMoving = dist > 0.08;
           const isCompLeave = npc.id === 'companion' && prologPhase === 'companion_leave';
@@ -1968,13 +2175,41 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         });
       }
 
-      // Live Solo Lobby Crewmates (patrol stations & react dynamically to Global Network status)
-      const showLobbyCrew = !isMultiplayerRef.current && !cs && Math.abs(pPos.x) < 16 && Math.abs(pPos.z) < 16;
+      // Live Solo Lobby Crewmates (or Aulia Collapse emergency formation during Chapter 4 quest)
+      const aq = auliaQuestRef.current;
+      const isAuliaIncidentActive =
+        !isMultiplayerRef.current &&
+        Boolean(aq && (aq.stage === 'seeking_box' || aq.stage === 'returning_box'));
+      const showLobbyCrew =
+        !isMultiplayerRef.current && !cs && Math.abs(pPos.x) < 16 && Math.abs(pPos.z) < 16;
       const stationCrisis = completedChaptersCountRef.current < 5;
       for (let i = 0; i < idleCrewRigsRef.current.length; i++) {
         const crew = idleCrewRigsRef.current[i];
         crew.rig.root.visible = showLobbyCrew;
         if (!showLobbyCrew) continue;
+
+        if (isAuliaIncidentActive) {
+          const incidentPos: Record<'aulia' | 'dani' | 'sari' | 'raka', { x: number; z: number; yaw: number; anim: CharacterAnimState }> = {
+            aulia: { x: -3.55, z: 2.2, yaw: 0.35, anim: 'collapse' },
+            dani: { x: -4.45, z: 1.55, yaw: 0.85, anim: 'crouch_check' },
+            sari: { x: -2.9, z: 1.2, yaw: -0.45, anim: 'shock_cover' },
+            raka: { x: -4.55, z: 2.95, yaw: 2.3, anim: 'idle' },
+          };
+          const cfg = incidentPos[crew.id];
+          crew.x = cfg.x;
+          crew.z = cfg.z;
+          crew.yaw = cfg.yaw;
+          crew.rig.root.position.set(cfg.x, 0, cfg.z);
+          crew.rig.root.rotation.y = cfg.yaw;
+          animateCharacterRig(
+            crew.rig,
+            elapsed + i * 0.7,
+            cfg.anim,
+            dt,
+            crew.id === 'raka' ? 'panic' : undefined
+          );
+          continue;
+        }
 
         const wp = crew.waypoints[crew.waypointIdx];
         if (crew.phase === 'walk') {
@@ -2046,7 +2281,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       // 4. Automatic Sliding Doors, Chapter Locking & Post-Completion Sealing
       world.doors.forEach((door) => {
         const isCompLocked = !isMultiplayerRef.current && completedDoorIdSetRef.current.has(door.id);
-        const isChapLocked = !isMultiplayerRef.current && chapterLockedDoorSetRef.current.has(door.id);
+        const isChapLocked =
+          (!isMultiplayerRef.current || isMpLobby) && chapterLockedDoorSetRef.current.has(door.id);
         const isLocked = isCompLocked || isChapLocked;
         let shouldOpen = !isLocked && (Math.hypot(pPos.x - door.x, pPos.z - door.z) < 4.5 || Boolean(cs));
         if (!isLocked && !shouldOpen && isMultiplayerRef.current) {
@@ -2169,19 +2405,19 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         }
       }
 
-      // Smoothly move 2 local PointLights to closest & 2nd-closest rooms
+      // Smoothly move 2 local PointLights to closest & 2nd-closest rooms (subtle neutral metallic blend #49)
       const lightMix = 1 - Math.exp(-5 * dt);
       const roomA = ROOMS[world.roomGroups[closestIdx]?.roomId || 'central_lobby'];
       const roomB = ROOMS[world.roomGroups[secondIdx]?.roomId || 'global_balance_room'];
       const [lA, lB] = world.localLights;
       lA.position.x = THREE.MathUtils.lerp(lA.position.x, roomA.center.x, lightMix);
       lA.position.z = THREE.MathUtils.lerp(lA.position.z, roomA.center.z, lightMix);
-      _tmpColor.setHex(roomA.accentNum);
+      _tmpColor.setHex(roomA.accentNum).lerp(_neutralLightColor, 0.74);
       lA.color.lerp(_tmpColor, lightMix);
 
       lB.position.x = THREE.MathUtils.lerp(lB.position.x, roomB.center.x, lightMix);
       lB.position.z = THREE.MathUtils.lerp(lB.position.z, roomB.center.z, lightMix);
-      _tmpColor.setHex(roomB.accentNum);
+      _tmpColor.setHex(roomB.accentNum).lerp(_neutralLightColor, 0.74);
       lB.color.lerp(_tmpColor, lightMix);
 
       world.earthMesh.rotation.y += dt * 0.03;
@@ -2389,9 +2625,58 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       stv.outlineGroup.visible =
         !isPausedRef.current && !cs && !activeBookId && !isMp && (nearSecretTv || isTvHovered);
 
+      // 3D Customize Terminal in MP Waiting Lobby (#47)
+      const ct = world.customizeTerminal;
+      ct.beacon.rotation.y += dt * 1.4;
+      ct.beacon.position.y = 1.9 + Math.sin(elapsed * 2.5) * 0.04;
+      const dCustomTerm = Math.hypot(pPos.x - ct.position.x, pPos.z - ct.position.z);
+      const nearCustomTerm = isMpLobby && !cs && dCustomTerm < 2.95;
+      nearbyCustomizeRef.current = nearCustomTerm;
+      const isCustomHovered = hoveredTargetRef.current?.type === 'customize_terminal';
+      ct.outlineGroup.visible =
+        isMpLobby && !isPausedRef.current && !cs && (nearCustomTerm || isCustomHovered);
+
+      // Chapter 4 Aulia Secret Quest 3D Objects & Proximity (#39)
+      const aObjs = world.auliaQuestObjs;
+      const ladderPlacedNow = Boolean(aq?.ladderPlaced);
+      aObjs.setLadderPlaced(ladderPlacedNow);
+      aObjs.setBoxVisible(!aq || (!aq.hasBox && aq.stage !== 'completed'));
+      let nearAuliaAction: 'aulia_talk' | 'aulia_ladder_move' | 'aulia_climb_box' | null = null;
+      if (!isMp && !cs && aq && aq.stage !== 'not_started' && aq.stage !== 'completed') {
+        if (aq.stage === 'seeking_box') {
+          if (!aq.ladderPlaced) {
+            const dLad = Math.hypot(pPos.x - aObjs.ladderRestPos.x, pPos.z - aObjs.ladderRestPos.z);
+            if (dLad < 2.9) nearAuliaAction = 'aulia_ladder_move';
+          } else if (!aq.hasBox) {
+            const dCab = Math.hypot(pPos.x - aObjs.ladderPlacedPos.x, pPos.z - aObjs.ladderPlacedPos.z);
+            const dBox = Math.hypot(pPos.x - aObjs.boxPos.x, pPos.z - aObjs.boxPos.z);
+            if (dCab < 2.95 || dBox < 2.95) nearAuliaAction = 'aulia_climb_box';
+          }
+        } else if (aq.stage === 'returning_box') {
+          const dAulia = Math.hypot(pPos.x - -3.55, pPos.z - 2.2);
+          if (dAulia < 3.1) nearAuliaAction = 'aulia_talk';
+        }
+      }
+      nearbyAuliaRef.current = nearAuliaAction;
+      aObjs.ladderOutlineGroup.visible =
+        !isPausedRef.current &&
+        !cs &&
+        !isMp &&
+        aq?.stage === 'seeking_box' &&
+        !aq.ladderPlaced &&
+        (nearAuliaAction === 'aulia_ladder_move' || hoveredTargetRef.current?.type === 'aulia_ladder');
+      aObjs.boxOutlineGroup.visible =
+        !isPausedRef.current &&
+        !cs &&
+        !isMp &&
+        aq?.stage === 'seeking_box' &&
+        aq.ladderPlaced &&
+        !aq.hasBox &&
+        (nearAuliaAction === 'aulia_climb_box' || hoveredTargetRef.current?.type === 'aulia_box');
+
       // Stasis Pods & Emergency & Eliminate detection (Multiplayer)
       let foundPod: HudLiveState['nearbyStasisPod'] = null;
-      if (isMultiplayerRef.current && amAliveRef.current && !cs) {
+      if (isMultiplayerRef.current && !isMpLobby && amAliveRef.current && !cs) {
         let bestPodDist = 4.2;
         stasisPodsRef.current.forEach((pod) => {
           const d = Math.hypot(pPos.x - pod.x, pPos.z - pod.z);
@@ -2405,12 +2690,20 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
       const nearbyEmergency =
         isMultiplayerRef.current &&
+        !isMpLobby &&
         amAliveRef.current &&
         !cs &&
         Math.hypot(pPos.x, pPos.z) < 4.5;
 
       let nearbyTarget: HudLiveState['nearbyEliminateTarget'] = null;
-      if (isMultiplayerRef.current && myRoleRef.current === 'impostor' && amAliveRef.current && !inVentRef.current && !cs) {
+      if (
+        isMultiplayerRef.current &&
+        !isMpLobby &&
+        myRoleRef.current === 'impostor' &&
+        amAliveRef.current &&
+        !inVentRef.current &&
+        !cs
+      ) {
         let bestTargetDist = 3.8;
         remoteRigMapRef.current.forEach((entry, pid) => {
           if (!entry.alive || entry.inVent) return;
@@ -2581,6 +2874,36 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             _csBaseCam.set(-13.6, 2.2, -31.5);
             resolveCollisionFreeCutsceneCamera(_camTarget, _csBaseCam, world.wallBoxes, _desiredCamPos, firstNpc);
           }
+        } else if (cs === 'aulia_collapse' || cs === 'aulia_open') {
+          if (focus === 'sparkle_spot') {
+            _camTarget.set(5.8, 1.3, 0.2);
+            _desiredCamPos.set(-0.2, 2.25, 2.2);
+          } else if (focus === 'sparkle_follow') {
+            _camTarget.set(_sparklePos.x, _sparklePos.y, _sparklePos.z);
+            _desiredCamPos.set(_sparklePos.x - 3.6, 2.35, _sparklePos.z + 3.8);
+          } else if (focus === 'cabinet_top') {
+            _camTarget.set(19.4, 2.15, -21.0);
+            _csBaseCam.set(16.6, 2.55, -17.6);
+            resolveCollisionFreeCutsceneCamera(_camTarget, _csBaseCam, world.wallBoxes, _desiredCamPos);
+          } else if (focus === 'player') {
+            _camTarget.set(pPos.x, charTargetY, pPos.z);
+            _csBaseCam.set(pPos.x + 2.4 * wideDistBoost, 2.0, pPos.z + 2.7 * wideDistBoost);
+            resolveCollisionFreeCutsceneCamera(pPos, _csBaseCam, world.wallBoxes, _desiredCamPos);
+          } else {
+            _camTarget.set(-3.6, 0.72, 2.0);
+            _csBaseCam.set(-0.8, 2.35, 5.4 * wideDistBoost);
+            resolveCollisionFreeCutsceneCamera(_camTarget, _csBaseCam, world.wallBoxes, _desiredCamPos);
+          }
+        } else if (cs === 'aulia_febriyani') {
+          if (focus === 'cabinet_top') {
+            _camTarget.set(19.4, 2.28, -21.05);
+            _csBaseCam.set(17.1, 2.55, -17.6);
+            resolveCollisionFreeCutsceneCamera(_camTarget, _csBaseCam, world.wallBoxes, _desiredCamPos);
+          } else {
+            _camTarget.set(pPos.x, 1.85, pPos.z);
+            _csBaseCam.set(16.9, 2.65, -17.3);
+            resolveCollisionFreeCutsceneCamera(pPos, _csBaseCam, world.wallBoxes, _desiredCamPos);
+          }
         } else {
           // ratu_laras & all_final in Earth Observation Room open north deck
           if (focus === 'player') {
@@ -2685,6 +3008,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           nearbyStasisPod: foundPod,
           nearbyEmergencyConsole: nearbyEmergency,
           nearbySecretTv: nearSecretTv,
+          nearbyCustomizeTerminal: nearCustomTerm,
+          nearbyAuliaInteract: nearAuliaAction,
           nearbyEliminateTarget: nearbyTarget,
         });
       }

@@ -1,6 +1,7 @@
-import { CHAPTER_INFO, CUTSCENES, EMOTES, INVENTORY_ITEMS } from '../data/gameData';
+import { CHAPTER_INFO, CUTSCENES, EMOTES, INVENTORY_ITEMS, getBatikMerahRequirements } from '../data/gameData';
 import { isPlayerClearOfRoomAndDoor, ROOMS } from '../data/stationLayout';
 import {
+  AuliaSecretQuestState,
   ChapterId,
   ChapterProgressState,
   CutsceneCharacterId,
@@ -136,6 +137,15 @@ export function getDefaultSaveState(): SaveState {
     metNpcs: [],
     unlockedEmotes: [...STARTER_EMOTE_IDS],
     secretTvCompleted: false,
+    auliaSecretQuest: {
+      stage: 'not_started',
+      hasBox: false,
+      ladderPlaced: false,
+      checkpointLine: 0,
+    },
+    soloCompletions: 0,
+    multiplayerCompletions: 0,
+    countedMatchIds: [],
     replayMode: false,
     runStartedAt: null,
     bestCompletionMs: null,
@@ -510,6 +520,66 @@ export function normalizeAndRecoverSaveState(raw: Partial<SaveState> | null | un
       ? raw.settings.selectedExternalTrack
       : null;
 
+  const rawAulia = raw.auliaSecretQuest;
+  const validAuliaStages = new Set<AuliaSecretQuestState['stage']>([
+    'not_started',
+    'cutscene_collapse',
+    'seeking_box',
+    'cutscene_febriyani',
+    'returning_box',
+    'cutscene_open',
+    'completed',
+  ]);
+  const auliaStage: AuliaSecretQuestState['stage'] =
+    rawAulia?.stage && validAuliaStages.has(rawAulia.stage)
+      ? rawAulia.stage
+      : unlockedItems.includes('batik_smada_biru') || completedCutscenes.includes('aulia_open')
+        ? 'completed'
+        : completedCutscenes.includes('aulia_febriyani')
+          ? 'returning_box'
+          : completedCutscenes.includes('aulia_collapse')
+            ? 'seeking_box'
+            : 'not_started';
+
+  const auliaSecretQuest: AuliaSecretQuestState = {
+    stage: auliaStage,
+    hasBox:
+      auliaStage === 'returning_box' ||
+      auliaStage === 'cutscene_open' ||
+      auliaStage === 'completed' ||
+      Boolean(rawAulia?.hasBox),
+    ladderPlaced:
+      auliaStage === 'returning_box' ||
+      auliaStage === 'cutscene_open' ||
+      auliaStage === 'completed' ||
+      Boolean(rawAulia?.ladderPlaced),
+    checkpointLine:
+      typeof rawAulia?.checkpointLine === 'number' && Number.isFinite(rawAulia.checkpointLine)
+        ? Math.max(0, rawAulia.checkpointLine)
+        : 0,
+  };
+
+  if (auliaSecretQuest.stage === 'completed' && !unlockedItems.includes('batik_smada_biru')) {
+    unlockedItems = Array.from(new Set([...unlockedItems, 'batik_smada_biru']));
+  }
+  if (completedChapters.includes(5) && !unlockedItems.includes('batik_smada_ungu')) {
+    unlockedItems = Array.from(new Set([...unlockedItems, 'batik_smada_ungu']));
+  }
+
+  const soloCompletions =
+    typeof raw.soloCompletions === 'number' && Number.isFinite(raw.soloCompletions)
+      ? Math.max(0, Math.floor(raw.soloCompletions))
+      : raw.quizCompleted
+        ? 1
+        : 0;
+  const multiplayerCompletions =
+    typeof raw.multiplayerCompletions === 'number' && Number.isFinite(raw.multiplayerCompletions)
+      ? Math.max(0, Math.floor(raw.multiplayerCompletions))
+      : 0;
+  const countedMatchIds = Array.isArray(raw.countedMatchIds)
+    ? Array.from(new Set(raw.countedMatchIds.filter((id): id is string => typeof id === 'string'))).slice(-50)
+    : [];
+
   const normalizedState: SaveState = {
     ...defaults,
     ...raw,
@@ -539,6 +609,10 @@ export function normalizeAndRecoverSaveState(raw: Partial<SaveState> | null | un
     metNpcs,
     unlockedEmotes: Array.from(unlockedEmoteSet),
     secretTvCompleted,
+    auliaSecretQuest,
+    soloCompletions,
+    multiplayerCompletions,
+    countedMatchIds,
     replayMode: Boolean(raw.replayMode),
     runStartedAt: typeof raw.runStartedAt === 'number' && Number.isFinite(raw.runStartedAt) ? raw.runStartedAt : null,
     bestCompletionMs:
@@ -550,6 +624,24 @@ export function normalizeAndRecoverSaveState(raw: Partial<SaveState> | null | un
     pendingRewardChapter,
     chapterProgress,
   };
+
+  // Unlock Batik SMADA Merah if all 5 cumulative conditions are met
+  if (
+    !normalizedState.unlockedItems.includes('batik_smada_merah') &&
+    getBatikMerahRequirements(normalizedState).allMet
+  ) {
+    normalizedState.unlockedItems = [...normalizedState.unlockedItems, 'batik_smada_merah'];
+  }
+
+  // Validate equipped costume against unlockedItems (only 3 Batik SMADA costumes are unlock-gated)
+  if (
+    (normalizedState.character.costume === 'batik_smada_biru' ||
+      normalizedState.character.costume === 'batik_smada_ungu' ||
+      normalizedState.character.costume === 'batik_smada_merah') &&
+    !normalizedState.unlockedItems.includes(normalizedState.character.costume)
+  ) {
+    normalizedState.character.costume = 'standard_crew';
+  }
 
   // Re-compute & persist completed locked rooms automatically (excluding neverLock hub rooms)
   const savedLockedSet = new Set(

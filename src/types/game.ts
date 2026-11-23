@@ -20,7 +20,10 @@ export type CostumeStyleId =
   | 'standard_crew'
   | 'tactical_armor'
   | 'nusantara_batik'
-  | 'cyber_neon';
+  | 'cyber_neon'
+  | 'batik_smada_merah'
+  | 'batik_smada_biru'
+  | 'batik_smada_ungu';
 
 export type HeadAccessoryId =
   | 'none'
@@ -90,7 +93,7 @@ export type SpecialItemId =
 
 export type ChapterId = 1 | 2 | 3 | 4 | 5;
 
-export type InventoryCategory = 'head' | 'neck' | 'body' | 'special';
+export type InventoryCategory = 'head' | 'neck' | 'body' | 'costume' | 'special';
 
 export interface InventoryItemDef {
   id: string;
@@ -101,6 +104,8 @@ export interface InventoryItemDef {
   rewardChapter?: ChapterId;
   accentHex: string;
   equipId?: HeadAccessoryId | BodyAccessoryId | NeckAccessoryId;
+  costumeId?: CostumeStyleId;
+  unlockHint?: string;
 }
 
 export interface HeadwearTransform {
@@ -130,7 +135,11 @@ export type CharacterAnimState =
   | 'vent_in'
   | 'vent_out'
   | 'celebrate'
-  | 'defeat';
+  | 'defeat'
+  | 'climb'
+  | 'crouch_check'
+  | 'shock_cover'
+  | 'collapse';
 
 export type EmoteId =
   | 'wave'
@@ -183,7 +192,7 @@ export interface MusicSearchResult {
   durationMs: number;
   previewDurationMs?: number;
   isPreview?: boolean;
-  source: 'itunes';
+  source: 'audius' | 'jamendo' | 'itunes';
 }
 
 export type RankingCategory = 'fastest' | 'most_items' | 'most_emotes';
@@ -294,14 +303,18 @@ export type CutsceneCharacterId =
   | 'fuzzy'
   | 'bob'
   | 'ratu_laras'
-  | 'all_final';
+  | 'all_final'
+  | 'aulia_collapse'
+  | 'aulia_febriyani'
+  | 'aulia_open';
 
 export type NpcCharacterId = 'rex' | 'bima' | 'fuzzy' | 'bob' | 'ratu_laras';
+export type LobbyCrewNpcId = 'aulia' | 'dani' | 'sari' | 'raka';
 
 export interface CutsceneLine {
   speaker: string;
   roleTitle: string;
-  speakerId: NpcCharacterId | 'player' | 'narrator' | 'companion';
+  speakerId: NpcCharacterId | LobbyCrewNpcId | 'player' | 'narrator' | 'companion';
   colorHex: string;
   text: string;
   emotion?: 'confident' | 'thoughtful' | 'inspiring' | 'serious' | 'curious' | 'panic';
@@ -313,7 +326,9 @@ export interface CutsceneLine {
     | 'gearup'
     | 'scratch_head'
     | 'tilt_curious'
-    | 'panic';
+    | 'panic'
+    | 'shock_cover'
+    | 'crouch_check';
   cameraFocus?:
     | 'wide'
     | 'npc'
@@ -324,13 +339,21 @@ export interface CutsceneLine {
     | 'shuttle'
     | 'sparkle_spot'
     | 'sparkle_follow'
-    | 'sparkle_book';
+    | 'sparkle_book'
+    | 'aulia_group'
+    | 'cabinet_top';
   scenePhase?:
     | 'companion_panic'
     | 'companion_leave'
     | 'sparkle_spot'
     | 'sparkle_follow'
-    | 'sparkle_book';
+    | 'sparkle_book'
+    | 'aulia_collapsed'
+    | 'aulia_sparkle_spot'
+    | 'aulia_sparkle_follow'
+    | 'aulia_sparkle_cabinet'
+    | 'aulia_febriyani_inspect'
+    | 'aulia_open_box';
 }
 
 export interface CutsceneScript {
@@ -490,6 +513,22 @@ export interface ChapterProgressState {
   rewardClaimed: boolean;
 }
 
+export type AuliaSecretQuestStage =
+  | 'not_started'
+  | 'cutscene_collapse'
+  | 'seeking_box'
+  | 'cutscene_febriyani'
+  | 'returning_box'
+  | 'cutscene_open'
+  | 'completed';
+
+export interface AuliaSecretQuestState {
+  stage: AuliaSecretQuestStage;
+  hasBox: boolean;
+  ladderPlaced: boolean;
+  checkpointLine?: number;
+}
+
 export interface SaveState {
   character: CharacterConfig;
   settings: GameSettings;
@@ -516,6 +555,10 @@ export interface SaveState {
   metNpcs?: NpcCharacterId[];
   unlockedEmotes?: EmoteId[];
   secretTvCompleted?: boolean;
+  auliaSecretQuest?: AuliaSecretQuestState;
+  soloCompletions?: number;
+  multiplayerCompletions?: number;
+  countedMatchIds?: string[];
   replayMode?: boolean;
   runStartedAt?: number | null;
   bestCompletionMs?: number | null;
@@ -523,7 +566,7 @@ export interface SaveState {
 }
 
 // --- MULTIPLAYER TYPES ---
-export type MultiplayerRole = 'crewmate' | 'impostor';
+export type MultiplayerRole = 'crewmate' | 'impostor' | 'peramal';
 export type MultiplayerPhase = 'lobby' | 'playing' | 'meeting' | 'ended';
 export type ConnectionStatus =
   | 'disconnected'
@@ -592,6 +635,27 @@ export interface MeetingChatMessage {
   isSystem?: boolean;
 }
 
+export interface HostSettings {
+  impostorCount: number;
+  votingDurationSec: number;
+}
+
+export interface LobbyChatMessage {
+  id: string;
+  senderId: string;
+  senderName: string;
+  senderColor: string;
+  text: string;
+  timestamp: number;
+  isSystem?: boolean;
+}
+
+export interface PeramalInspectResult {
+  targetId: string;
+  targetName: string;
+  revealedRole: MultiplayerRole;
+}
+
 export interface MeetingState {
   reason: 'emergency' | 'report';
   callerName: string;
@@ -609,10 +673,12 @@ export interface MeetingState {
 }
 
 export interface MatchResultSummary {
+  matchId?: string;
   winner: 'crewmate' | 'impostor';
   reason: string;
   impostorId: string;
   impostorName: string;
+  impostorNames?: string[];
   crewMissionDone: number;
   crewMissionTotal: number;
   impostorObjectiveDone: number;
@@ -630,12 +696,18 @@ export interface MatchResultSummary {
 export interface RoomSnapshot {
   roomCode: string;
   phase: MultiplayerPhase;
+  maxPlayers: number;
+  hostSettings: HostSettings;
+  peramalCount: number;
   players: RemotePlayerPublic[];
   stasisPods: StasisPodState[];
   crewMissionTotal: number;
   crewMissionDone: number;
   impostorObjectiveTotal: number;
   impostorObjectiveDone: number;
+  myCompletedMissions: MissionId[];
+  myPeramalUsed: boolean;
+  lobbyMessages: LobbyChatMessage[];
   meeting: MeetingState | null;
   matchResult: MatchResultSummary | null;
   killCooldownEndsAt: number; // private to impostor, 0 for crewmate

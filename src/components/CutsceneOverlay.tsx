@@ -6,6 +6,7 @@ import {
   BodyAccessoryId,
   ChapterId,
   CharacterConfig,
+  CostumeStyleId,
   CutsceneCharacterId,
   CutsceneLine,
   HeadAccessoryId,
@@ -129,17 +130,21 @@ export const CutsceneOverlay: React.FC<CutsceneOverlayProps> = ({
         style={{ borderColor: `${currentLine.colorHex}aa` }}
       >
         <div className="flex flex-wrap items-center justify-between gap-1.5 sm:gap-2 mb-1.5 sm:mb-2">
-          <div className="flex items-center gap-2">
-            <span
-              className="px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-lg font-display font-bold text-[11px] sm:text-xs md:text-sm text-slate-950 whitespace-nowrap"
-              style={{ backgroundColor: currentLine.colorHex }}
-            >
-              {currentLine.speaker}
-            </span>
-            <span className="text-[11px] sm:text-xs font-medium text-slate-300 truncate max-w-[180px] sm:max-w-none">
-              {currentLine.roleTitle}
-            </span>
-          </div>
+          {currentLine.speakerId !== 'narrator' && currentLine.speaker !== 'NARATOR' ? (
+            <div className="flex items-center gap-2">
+              <span
+                className="px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-lg font-display font-bold text-[11px] sm:text-xs md:text-sm text-slate-950 whitespace-nowrap"
+                style={{ backgroundColor: currentLine.colorHex }}
+              >
+                {currentLine.speaker}
+              </span>
+              <span className="text-[11px] sm:text-xs font-medium text-slate-300 truncate max-w-[180px] sm:max-w-none">
+                {currentLine.roleTitle}
+              </span>
+            </div>
+          ) : (
+            <div />
+          )}
           <span className="text-[11px] font-mono-num text-slate-400">
             {lineIdx + 1} / {lines.length}
           </span>
@@ -174,7 +179,10 @@ interface RewardModalProps {
   chapter: ChapterId;
   character: CharacterConfig;
   rewardItem: InventoryItemDef;
-  specialItem: InventoryItemDef;
+  specialItem?: InventoryItemDef;
+  titleLabel?: string;
+  subtitleLabel?: string;
+  continueLabel?: string;
   onEquipAndContinue: () => void;
   onContinue: () => void;
 }
@@ -184,6 +192,9 @@ export const RewardModal: React.FC<RewardModalProps> = ({
   character,
   rewardItem,
   specialItem,
+  titleLabel,
+  subtitleLabel,
+  continueLabel,
   onEquipAndContinue,
   onContinue,
 }) => {
@@ -194,11 +205,18 @@ export const RewardModal: React.FC<RewardModalProps> = ({
     setWearReward(true);
   }, [rewardItem.id]);
 
-  // Build explicit with-item vs without-item character comparison (#15)
+  const hasEquippableReward = Boolean(rewardItem.equipId || rewardItem.costumeId);
+
+  // Build explicit with-item vs without-item character comparison (#15 & Batik SMADA costumes)
   const previewConfig = useMemo<CharacterConfig>(() => {
-    if (!rewardItem.equipId) return character;
+    if (!hasEquippableReward) return character;
     if (!wearReward) {
-      // Character asli tanpa hadiah ini
+      if (rewardItem.category === 'costume' && rewardItem.costumeId) {
+        return {
+          ...character,
+          costume: character.costume === rewardItem.costumeId ? 'standard_crew' : character.costume,
+        };
+      }
       if (rewardItem.category === 'head') {
         return { ...character, head: character.head === rewardItem.equipId ? 'none' : character.head };
       }
@@ -210,17 +228,20 @@ export const RewardModal: React.FC<RewardModalProps> = ({
       }
       return character;
     }
-    if (rewardItem.category === 'head') {
+    if (rewardItem.category === 'costume' && rewardItem.costumeId) {
+      return { ...character, costume: rewardItem.costumeId as CostumeStyleId };
+    }
+    if (rewardItem.category === 'head' && rewardItem.equipId) {
       return { ...character, head: rewardItem.equipId as HeadAccessoryId };
     }
-    if (rewardItem.category === 'body') {
+    if (rewardItem.category === 'body' && rewardItem.equipId) {
       return { ...character, body: rewardItem.equipId as BodyAccessoryId };
     }
-    if (rewardItem.category === 'neck') {
+    if (rewardItem.category === 'neck' && rewardItem.equipId) {
       return { ...character, neck: rewardItem.equipId as NeckAccessoryId };
     }
     return character;
-  }, [character, rewardItem, wearReward]);
+  }, [character, hasEquippableReward, rewardItem, wearReward]);
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/85 flex items-center justify-center p-3 sm:p-4">
@@ -231,16 +252,16 @@ export const RewardModal: React.FC<RewardModalProps> = ({
           </div>
           <div className="text-left">
             <p className="text-[11px] font-bold uppercase tracking-widest text-amber-300">
-              Chapter {chapter} Selesai!
+              {subtitleLabel || `Chapter ${chapter} Selesai!`}
             </p>
             <h2 className="font-display text-lg md:text-2xl font-extrabold text-white leading-tight">
-              HADIAH BARU TERBUKA
+              {titleLabel || 'HADIAH BARU TERBUKA'}
             </h2>
           </div>
         </div>
 
         {/* Clean 3D Comparison Stage with simple "Pakai" / "Lepas" buttons */}
-        {rewardItem.equipId && (
+        {hasEquippableReward && (
           <div className="relative h-48 sm:h-52 w-full rounded-xl overflow-hidden border border-amber-400/35 bg-[#050a18]">
             <CharacterPreview3D config={previewConfig} />
             <div className="absolute top-2.5 left-2.5 px-2.5 py-1 rounded-md bg-slate-950/85 border border-amber-400/40 text-xs font-bold text-amber-200 pointer-events-none">
@@ -290,16 +311,18 @@ export const RewardModal: React.FC<RewardModalProps> = ({
           <p className="text-xs text-slate-300 leading-relaxed">{rewardItem.description}</p>
         </div>
 
-        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 text-left flex items-center gap-3">
-          <Sparkles className="w-5 h-5 text-emerald-400 shrink-0" />
-          <div>
-            <p className="text-xs font-bold text-emerald-300">Artefak Khusus: {specialItem.name}</p>
-            <p className="text-[11px] text-slate-400">{specialItem.description}</p>
+        {specialItem && (
+          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 text-left flex items-center gap-3">
+            <Sparkles className="w-5 h-5 text-emerald-400 shrink-0" />
+            <div>
+              <p className="text-xs font-bold text-emerald-300">Artefak Khusus: {specialItem.name}</p>
+              <p className="text-[11px] text-slate-400">{specialItem.description}</p>
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="flex flex-col sm:flex-row gap-2.5 pt-1">
-          {rewardItem.equipId && (
+          {hasEquippableReward && (
             <button
               onClick={() => {
                 soundEngine.playClick();
@@ -322,7 +345,7 @@ export const RewardModal: React.FC<RewardModalProps> = ({
             }}
             className="flex-1 py-2.5 px-4 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-display font-bold text-xs md:text-sm cursor-pointer whitespace-nowrap"
           >
-            {chapter < 5 ? `BUKA CHAPTER ${chapter + 1}` : 'BUKA FINAL QUIZ'}
+            {continueLabel || (chapter < 5 ? `BUKA CHAPTER ${chapter + 1}` : 'BUKA FINAL QUIZ')}
           </button>
         </div>
       </div>

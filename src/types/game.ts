@@ -390,6 +390,8 @@ export interface SingleChoiceQuestion {
     | 'cause_effect'
     | 'statement_analysis';
   topic: string;
+  subtopic?: string;
+  conceptTag?: string;
   category?: 'Bentuk Globalisasi' | 'Proses Globalisasi';
   prompt: string;
   contextText?: string;
@@ -397,6 +399,7 @@ export interface SingleChoiceQuestion {
   options: ChoiceOption[];
   correctOptionId: string;
   explanation: string;
+  wrongExplanation?: string;
 }
 
 export interface ConceptPair {
@@ -409,11 +412,14 @@ export interface ConceptMatchingQuestion {
   id: string;
   type: 'concept_matching';
   topic: string;
+  subtopic?: string;
+  conceptTag?: string;
   category?: 'Bentuk Globalisasi' | 'Proses Globalisasi';
   prompt: string;
   contextText?: string;
   pairs: ConceptPair[];
   explanation: string;
+  wrongExplanation?: string;
 }
 
 export interface SequenceStep {
@@ -426,11 +432,14 @@ export interface ProcessSequenceQuestion {
   id: string;
   type: 'process_sequence';
   topic: string;
+  subtopic?: string;
+  conceptTag?: string;
   category?: 'Bentuk Globalisasi' | 'Proses Globalisasi';
   prompt: string;
   contextText?: string;
   steps: SequenceStep[];
   explanation: string;
+  wrongExplanation?: string;
 }
 
 export type QuestionModel =
@@ -441,6 +450,8 @@ export type QuestionModel =
 export interface QuizQuestion {
   id: number;
   category: 'Bentuk Globalisasi' | 'Proses Globalisasi';
+  subtopic?: string;
+  conceptTag?: string;
   model: QuestionModel;
 }
 
@@ -500,6 +511,32 @@ export type BadgeRank =
   | 'SOCIAL ANALYST'
   | 'JUNIOR SOCIOLOGIST'
   | 'GLOBALIZATION APPRENTICE';
+
+export type SoloBadgeTier = 'gold' | 'silver' | 'bronze';
+
+export interface SoloBadgeBreakdown {
+  quizAccuracyPct: number;
+  missionMasteryPct: number;
+  consistencyPct: number;
+  durationScorePct: number;
+  booksReadCount: number;
+  booksTotalCount: number;
+}
+
+export interface SoloBadgeRecord {
+  runId: string;
+  tier: SoloBadgeTier;
+  compositeScore: number; // 0..100
+  quizScore: number; // 0..100
+  quizCorrectCount: number;
+  quizTotalCount: number;
+  missionsCompleted: number;
+  chaptersCompleted: number;
+  consistencyScore: number; // 0..100
+  durationMs: number | null;
+  breakdown: SoloBadgeBreakdown;
+  earnedAt: number;
+}
 
 export interface CutsceneCheckpoint {
   cutsceneId: CutsceneCharacterId;
@@ -563,6 +600,12 @@ export interface SaveState {
   runStartedAt?: number | null;
   bestCompletionMs?: number | null;
   pendingRankingSync?: boolean;
+  activeSoloRunId?: string;
+  claimedSoloBadgeRunIds?: string[];
+  soloBadgeHistory?: SoloBadgeRecord[];
+  bestSoloBadge?: SoloBadgeTier | null;
+  lastSoloBadgeRecord?: SoloBadgeRecord | null;
+  missionFirstScores?: Partial<Record<MissionId, number>>;
 }
 
 // --- MULTIPLAYER TYPES ---

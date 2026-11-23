@@ -32,6 +32,7 @@ import {
   WifiOff,
 } from 'lucide-react';
 import { MUSIC_TRACKS, normalizeMusicTrackId, soundEngine } from '../audio/soundEngine';
+import { SOLO_BADGE_TIER_META } from '../data/gameData';
 import { GameSettings, GraphicsQuality, SaveState, ScreenView } from '../types/game';
 import { SpaceBackdrop3D } from './SpaceBackdrop3D';
 
@@ -164,6 +165,17 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 <span className="font-mono-num">{saveState.completedMissions.length}/10 Misi</span>
                 <span>·</span>
                 <span className="font-mono-num text-amber-300">{saveState.totalExp} EXP</span>
+                {saveState.bestSoloBadge && (
+                  <>
+                    <span>·</span>
+                    <span
+                      className="font-bold"
+                      style={{ color: SOLO_BADGE_TIER_META[saveState.bestSoloBadge].colorHex }}
+                    >
+                      Badge {SOLO_BADGE_TIER_META[saveState.bestSoloBadge].shortLabel}
+                    </span>
+                  </>
+                )}
                 {saveState.activeCutsceneCheckpoint && (
                   <>
                     <span>·</span>

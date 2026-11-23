@@ -1,4 +1,4 @@
-import { CHAPTER_INFO, CUTSCENES, EMOTES, INVENTORY_ITEMS, getBatikMerahRequirements } from '../data/gameData';
+import { CHAPTER_INFO, CUTSCENES, EMOTES, INVENTORY_ITEMS, getBatikMerahRequirements, pickHigherSoloBadge } from '../data/gameData';
 import { isPlayerClearOfRoomAndDoor, ROOMS } from '../data/stationLayout';
 import {
   AuliaSecretQuestState,
@@ -13,8 +13,14 @@ import {
   NpcCharacterId,
   RoomId,
   SaveState,
+  SoloBadgeRecord,
+  SoloBadgeTier,
   TheoryBookId,
 } from '../types/game';
+
+export function generateSoloRunId(): string {
+  return `solo_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
 
 export const STARTER_EMOTE_IDS: EmoteId[] = EMOTES.filter((e) => e.isStarter).map((e) => e.id);
 
@@ -150,6 +156,12 @@ export function getDefaultSaveState(): SaveState {
     runStartedAt: null,
     bestCompletionMs: null,
     pendingRankingSync: false,
+    activeSoloRunId: generateSoloRunId(),
+    claimedSoloBadgeRunIds: [],
+    soloBadgeHistory: [],
+    bestSoloBadge: null,
+    lastSoloBadgeRecord: null,
+    missionFirstScores: {},
     activeCutsceneCheckpoint: null,
     pendingRewardChapter: null,
     chapterProgress: {
@@ -227,6 +239,9 @@ export function createChapterReplayState(prev: SaveState): SaveState {
     pendingRewardChapter: null,
     replayMode: true,
     runStartedAt: Date.now(),
+    activeSoloRunId: generateSoloRunId(),
+    missionScores: {},
+    missionFirstScores: {},
     chapterProgress: {
       1: { missionsCompleted: false, cutsceneCompleted: false, chapterCompleted: false, rewardClaimed: false },
       2: { missionsCompleted: false, cutsceneCompleted: false, chapterCompleted: false, rewardClaimed: false },
@@ -580,6 +595,101 @@ export function normalizeAndRecoverSaveState(raw: Partial<SaveState> | null | un
     ? Array.from(new Set(raw.countedMatchIds.filter((id): id is string => typeof id === 'string'))).slice(-50)
     : [];
 
+  const validTiers = new Set<SoloBadgeTier>(['gold', 'silver', 'bronze']);
+  const sanitizeBadgeRecord = (rec: unknown): SoloBadgeRecord | null => {
+    if (!rec || typeof rec !== 'object') return null;
+    const r = rec as Partial<SoloBadgeRecord>;
+    if (typeof r.runId !== 'string' || !r.runId) return null;
+    if (!r.tier || !validTiers.has(r.tier)) return null;
+    const chaptersDone = typeof r.chaptersCompleted === 'number' ? Math.max(0, Math.floor(r.chaptersCompleted)) : 0;
+    const missionsDone = typeof r.missionsCompleted === 'number' ? Math.max(0, Math.floor(r.missionsCompleted)) : 0;
+    if (chaptersDone < 5 || missionsDone < 10) return null;
+    const quizTotalCount = typeof r.quizTotalCount === 'number' && r.quizTotalCount > 0 ? Math.floor(r.quizTotalCount) : 12;
+    const quizCorrectCount =
+      typeof r.quizCorrectCount === 'number'
+        ? Math.max(0, Math.min(quizTotalCount, Math.floor(r.quizCorrectCount)))
+        : 0;
+    const quizScore =
+      typeof r.quizScore === 'number' && Number.isFinite(r.quizScore)
+        ? Math.max(0, Math.min(100, Math.round(r.quizScore)))
+        : Math.round((quizCorrectCount / quizTotalCount) * 100);
+    const compositeScore =
+      typeof r.compositeScore === 'number' && Number.isFinite(r.compositeScore)
+        ? Math.max(0, Math.min(100, Math.round(r.compositeScore)))
+        : quizScore;
+    const consistencyScore =
+      typeof r.consistencyScore === 'number' && Number.isFinite(r.consistencyScore)
+        ? Math.max(0, Math.min(100, Math.round(r.consistencyScore)))
+        : 100;
+    const bd = r.breakdown;
+    return {
+      runId: r.runId,
+      tier: r.tier,
+      compositeScore,
+      quizScore,
+      quizCorrectCount,
+      quizTotalCount,
+      missionsCompleted: missionsDone,
+      chaptersCompleted: chaptersDone,
+      consistencyScore,
+      durationMs: typeof r.durationMs === 'number' && Number.isFinite(r.durationMs) && r.durationMs > 0 ? r.durationMs : null,
+      breakdown: {
+        quizAccuracyPct: bd?.quizAccuracyPct ?? quizScore,
+        missionMasteryPct: bd?.missionMasteryPct ?? 100,
+        consistencyPct: bd?.consistencyPct ?? consistencyScore,
+        durationScorePct: bd?.durationScorePct ?? 85,
+        booksReadCount: bd?.booksReadCount ?? readBooks.length,
+        booksTotalCount: bd?.booksTotalCount ?? 11,
+      },
+      earnedAt: typeof r.earnedAt === 'number' && Number.isFinite(r.earnedAt) ? r.earnedAt : Date.now(),
+    };
+  };
+
+  const seenRunIds = new Set<string>();
+  const soloBadgeHistory: SoloBadgeRecord[] = [];
+  if (Array.isArray(raw.soloBadgeHistory)) {
+    for (const item of raw.soloBadgeHistory) {
+      const clean = sanitizeBadgeRecord(item);
+      if (clean && !seenRunIds.has(clean.runId)) {
+        seenRunIds.add(clean.runId);
+        soloBadgeHistory.push(clean);
+      }
+    }
+  }
+  const cappedBadgeHistory = soloBadgeHistory.slice(-30);
+
+  const claimedSoloBadgeRunIds = Array.from(
+    new Set([
+      ...(Array.isArray(raw.claimedSoloBadgeRunIds)
+        ? raw.claimedSoloBadgeRunIds.filter((id): id is string => typeof id === 'string' && id.length > 0)
+        : []),
+      ...cappedBadgeHistory.map((b) => b.runId),
+    ])
+  ).slice(-50);
+
+  let bestSoloBadge: SoloBadgeTier | null =
+    raw.bestSoloBadge && validTiers.has(raw.bestSoloBadge) ? raw.bestSoloBadge : null;
+  for (const b of cappedBadgeHistory) {
+    bestSoloBadge = pickHigherSoloBadge(bestSoloBadge, b.tier);
+  }
+  const lastSoloBadgeRecord =
+    sanitizeBadgeRecord(raw.lastSoloBadgeRecord) ||
+    (cappedBadgeHistory.length > 0 ? cappedBadgeHistory[cappedBadgeHistory.length - 1] : null);
+
+  const activeSoloRunId =
+    typeof raw.activeSoloRunId === 'string' && raw.activeSoloRunId.length > 0
+      ? raw.activeSoloRunId
+      : generateSoloRunId();
+
+  const missionFirstScores: Partial<Record<MissionId, number>> = {};
+  if (raw.missionFirstScores && typeof raw.missionFirstScores === 'object') {
+    for (const [k, v] of Object.entries(raw.missionFirstScores)) {
+      if (VALID_MISSION_IDS.has(k as MissionId) && typeof v === 'number' && Number.isFinite(v)) {
+        missionFirstScores[k as MissionId] = Math.max(0, Math.min(100, Math.round(v)));
+      }
+    }
+  }
+
   const normalizedState: SaveState = {
     ...defaults,
     ...raw,
@@ -602,6 +712,7 @@ export function normalizeAndRecoverSaveState(raw: Partial<SaveState> | null | un
     completedChapters,
     completedCutscenes,
     missionScores,
+    missionFirstScores,
     totalExp,
     readBooks,
     readBooksByPlayer: normalizedByPlayer,
@@ -613,6 +724,11 @@ export function normalizeAndRecoverSaveState(raw: Partial<SaveState> | null | un
     soloCompletions,
     multiplayerCompletions,
     countedMatchIds,
+    activeSoloRunId,
+    claimedSoloBadgeRunIds,
+    soloBadgeHistory: cappedBadgeHistory,
+    bestSoloBadge,
+    lastSoloBadgeRecord,
     replayMode: Boolean(raw.replayMode),
     runStartedAt: typeof raw.runStartedAt === 'number' && Number.isFinite(raw.runStartedAt) ? raw.runStartedAt : null,
     bestCompletionMs:
@@ -643,17 +759,21 @@ export function normalizeAndRecoverSaveState(raw: Partial<SaveState> | null | un
     normalizedState.character.costume = 'standard_crew';
   }
 
-  // Re-compute & persist completed locked rooms automatically (excluding neverLock hub rooms)
+  // Re-compute & persist completed locked rooms automatically (excluding neverLock rooms like cultural_room)
   const savedLockedSet = new Set(
     Array.isArray(raw.lockedCompletedRooms)
-      ? raw.lockedCompletedRooms.filter((r): r is RoomId => typeof r === 'string' && r in ROOMS)
+      ? raw.lockedCompletedRooms.filter(
+          (r): r is RoomId => typeof r === 'string' && r in ROOMS && r !== 'cultural_room'
+        )
       : []
   );
   const derivedLocked = getCompletedLockedRooms(normalizedState, null, null);
   derivedLocked.forEach((r) => savedLockedSet.add(r));
   // Ensure only legitimately completed lockable rooms remain in lockedCompletedRooms
   const validLockedSet = new Set(derivedLocked);
-  normalizedState.lockedCompletedRooms = Array.from(savedLockedSet).filter((r) => validLockedSet.has(r));
+  normalizedState.lockedCompletedRooms = Array.from(savedLockedSet).filter(
+    (r) => r !== 'cultural_room' && validLockedSet.has(r)
+  );
 
   return normalizedState;
 }

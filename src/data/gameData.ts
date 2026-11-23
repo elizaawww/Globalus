@@ -21,6 +21,9 @@ import {
   QuizQuestion,
   RoomId,
   SaveState,
+  SoloBadgeBreakdown,
+  SoloBadgeRecord,
+  SoloBadgeTier,
 } from '../types/game';
 
 export const HELMET_DESIGNS: Array<{ id: HelmetDesignId; label: string; desc: string }> = [
@@ -926,7 +929,8 @@ export const MISSION_QUESTIONS: Record<MissionId, QuestionModel[]> = {
         { id: 'p2', term: 'Arsitektur masjid beratap tumpang seperti pendopo Jawa', match: 'Akulturasi' },
         { id: 'p3', term: 'Menganggap bahasa daerah memalukan dibanding bahasa asing', match: 'Westernisasi' },
       ],
-      explanation: 'Membedakan glokalisasi, akulturasi, dan westernisasi membantu menganalisis interaksi lokal-global secara objektif.',
+      explanation:
+        'Glokalisasi memadukan produk global dengan selera lokal (kopi gula aren), akulturasi menyatukan dua tradisi tanpa menghapus ciri asli (atap pendopo pada masjid), sedangkan westernisasi meniru budaya Barat secara tidak kritis hingga meremehkan bahasa daerah.',
     },
   ],
 
@@ -2006,261 +2010,753 @@ export const IMPOSTOR_CHALLENGES: ImpostorChallenge[] = [
 ];
 
 export const FINAL_QUIZ_QUESTIONS: QuizQuestion[] = [
-  // 6 Soal Bentuk-Bentuk Globalisasi
+  // SUBTOPIK 1: PENGERTIAN GLOBALISASI (2 Studi Kasus)
   {
     id: 1,
-    category: 'Bentuk Globalisasi',
+    category: 'Proses Globalisasi',
+    subtopic: '1. Pengertian Globalisasi',
+    conceptTag: 'Intensifikasi Relasi Sosial & Sistem Dunia (Giddens & Selo Soemardjan)',
     model: {
       id: 'fq_1',
       type: 'case_study',
-      topic: 'Glokalisasi Budaya & Ekonomi',
-      category: 'Bentuk Globalisasi',
-      prompt: 'Analisis fenomena usaha kuliner berikut berdasarkan konsep sosiologi:',
+      topic: 'Pengertian Globalisasi · Studi Kasus 1',
+      subtopic: '1. Pengertian Globalisasi',
+      conceptTag: 'Intensifikasi Relasi Sosial & Sistem Dunia (Giddens & Selo Soemardjan)',
+      category: 'Proses Globalisasi',
+      prompt: 'Analisis dinamika hubungan lokal-global pada kasus industri elektronik berikut:',
       contextText:
-        'Seorang pengusaha lokal mengembangkan bisnis restoran cepat saji berstandar layanan internasional, namun mengolah menunya memakai bumbu sambal matah, rendang, dan kemasan bertema batik agar akrab dengan selera masyarakat Indonesia.',
+        'Gangguan pasokan cip semikonduktor di Taiwan akibat gempa bumi dalam hitungan hari langsung menunda jadwal produksi perakit perangkat pintar di Batam. Pada saat yang sama, seluruh pemasok lokal di Batam juga diwajibkan mengikuti standar audit mutu dan sistem pelaporan digital internasional yang sama agar tetap terhubung dalam rantai industri global.',
       options: [
-        { id: 'glokalisasi', label: 'Glokalisasi — adaptasi standar global dengan cita rasa dan budaya lokal' },
-        { id: 'westernisasi', label: 'Westernisasi — peniruan nilai Barat tanpa pelibatan budaya setempat' },
-        { id: 'neokolonialisme', label: 'Neokolonialisme — dominasi ekonomi melalui penguasaan paten asing' },
-        { id: 'cultural_lag', label: 'Cultural lag — tertinggalnya etika masyarakat dari perubahan teknologi' },
+        {
+          id: 'giddens_soemardjan',
+          label:
+            'Intensifikasi hubungan sosial mendunia (Anthony Giddens) disertai terbentuknya sistem organisasi dan kaidah komunikasi global yang seragam (Selo Soemardjan)',
+        },
+        {
+          id: 'isolasi_nasional',
+          label:
+            'Kemandirian produksi lokal murni di mana gangguan dari wilayah luar negeri tidak memiliki dampak terhadap standar industri dalam negeri',
+        },
+        {
+          id: 'asimilasi_bahasa',
+          label:
+            'Peleburan budaya daerah menjadi satu tradisi tunggal sehingga perusahaan lokal melepaskan seluruh identitas hukum negaranya',
+        },
+        {
+          id: 'urbanisasi_regional',
+          label:
+            'Perpindahan tenaga kerja dari desa ke kota industri dalam satu provinsi yang disebabkan oleh perbedaan upah regional',
+        },
       ],
-      correctOptionId: 'glokalisasi',
+      correctOptionId: 'giddens_soemardjan',
       explanation:
-        'Glokalisasi memadukan standar atau format global dengan kearifan lokal sehingga tercipta inovasi unik tanpa menghilangkan identitas asli.',
+        'Konsep utama yang diuji adalah pengertian globalisasi. Peristiwa di Taiwan memengaruhi operasi lokal di Batam menunjukkan intensifikasi hubungan sosial mendunia (Anthony Giddens), sementara tuntutan mengikuti standar pelaporan digital global mencerminkan terbentuknya sistem organisasi dan kaidah yang sama antarmasyarakat dunia (Selo Soemardjan).',
+      wrongExplanation:
+        'Kekeliruan konsep sering terjadi dengan menyamakan globalisasi sekadar perpindahan penduduk atau hilangnya identitas hukum negara. Padahal, inti kasus ini adalah keterkaitan peristiwa berjarak jauh dengan aktivitas lokal serta penyamaan sistem organisasi kerja lintas negara.',
     },
   },
   {
     id: 2,
-    category: 'Bentuk Globalisasi',
+    category: 'Proses Globalisasi',
+    subtopic: '1. Pengertian Globalisasi',
+    conceptTag: 'Masyarakat Dunia Tunggal & Keterkaitan Lintas Bangsa (Martin Albrow, Cochrane & Pain)',
     model: {
       id: 'fq_2',
-      type: 'multiple_choice',
-      topic: 'Globalisasi Komunikasi & IPTEK',
-      category: 'Bentuk Globalisasi',
-      prompt:
-        'Pelajar SMA di Bandung dapat berkolaborasi real-time melalui video conference dengan siswa di Tokyo memakai penerjemah AI untuk proyek riset lingkungan. Hal ini mencerminkan keterkaitan erat antara...',
+      type: 'case_study',
+      topic: 'Pengertian Globalisasi · Studi Kasus 2',
+      subtopic: '1. Pengertian Globalisasi',
+      conceptTag: 'Masyarakat Dunia Tunggal & Keterkaitan Lintas Bangsa (Martin Albrow, Cochrane & Pain)',
+      category: 'Proses Globalisasi',
+      prompt: 'Tentukan interpretasi sosiologis paling tepat atas kolaborasi komunitas lintas benua berikut:',
+      contextText:
+        'Komunitas pelajar di Makassar, Nairobi, dan Helsinki serentak meluncurkan gerakan pengurangan sampah plastik pesisir melalui platform kolaborasi daring. Mereka bertukar modul daur ulang, menggalang donasi lintas mata uang untuk proyek restorasi mangrove, dan menyusun petisi lingkungan bersama sebagai warga bumi.',
       options: [
-        { id: 'kom_iptek', label: 'Globalisasi komunikasi dan globalisasi IPTEK' },
-        { id: 'asimilasi', label: 'Asimilasi total dan pengurangan mobilitas informasi' },
-        { id: 'westernisasi', label: 'Westernisasi dan penutupan akses budaya lokal' },
-        { id: 'periphery', label: 'Isolasi negara berkembang dari teknologi komunikasi' },
+        {
+          id: 'albrow_cochrane',
+          label:
+            'Inkorporasi masyarakat ke dalam satu masyarakat dunia tunggal (Martin Albrow) melalui pertambahan keterkaitan dan ketergantungan lintas batas (Cochrane & Pain)',
+        },
+        {
+          id: 'monopoli_periphery',
+          label:
+            'Eksploitasi sepihak negara maju terhadap sumber daya alam negara pinggiran melalui penguasaan utang luar negeri dan paten industri',
+        },
+        {
+          id: 'cultural_shock_lokal',
+          label:
+            'Kegoncangan psikologis masyarakat lokal akibat masuknya norma pergaulan asing yang bertentangan dengan adat setempat secara mendadak',
+        },
+        {
+          id: 'westernisasi_konsumtif',
+          label:
+            'Peniruan gaya hidup konsumtif negara Barat secara tidak kritis sehingga pelajar meninggalkan kesadaran atas masalah lingkungannya sendiri',
+        },
       ],
-      correctOptionId: 'kom_iptek',
+      correctOptionId: 'albrow_cochrane',
       explanation:
-        'Video conference merupakan wujud globalisasi komunikasi, sedangkan kecerdasan buatan (AI) adalah wujud nyata globalisasi IPTEK.',
+        'Konsep utama yang diuji adalah pengertian globalisasi menurut Martin Albrow serta Cochrane & Pain. Aksi serentak pelajar dari tiga benua menunjukkan terintegrasinya manusia ke dalam satu masyarakat global (Albrow) lewat pertambahan keterkaitan komunikasi, aksi sosial, dan aliran dana lintas bangsa (Cochrane & Pain).',
+      wrongExplanation:
+        'Kasus ini menggambarkan kerja sama setara lintas benua untuk tujuan ekologis, bukan dominasi ekonomi sepihak, gegar budaya, ataupun peniruan gaya hidup konsumtif.',
     },
   },
+
+  // SUBTOPIK 2: CIRI-CIRI GLOBALISASI (2 Studi Kasus)
   {
     id: 3,
     category: 'Bentuk Globalisasi',
+    subtopic: '2. Ciri-Ciri Globalisasi',
+    conceptTag: 'Penyusutan Ruang-Waktu (Time-Space Compression) & Ketergantungan Ekonomi',
     model: {
       id: 'fq_3',
-      type: 'cause_effect',
-      topic: 'Globalisasi Ekonomi & E-Commerce',
+      type: 'case_study',
+      topic: 'Ciri-Ciri Globalisasi · Studi Kasus 3',
+      subtopic: '2. Ciri-Ciri Globalisasi',
+      conceptTag: 'Penyusutan Ruang-Waktu (Time-Space Compression) & Ketergantungan Ekonomi',
       category: 'Bentuk Globalisasi',
-      prompt: 'Pilih akibat ekonomi yang paling sesuai dengan perkembangan teknologi logistik dan marketplace lintas negara:',
+      prompt: 'Identifikasi pasangan ciri globalisasi yang tampak langsung dalam aktivitas pelaku usaha berikut:',
       contextText:
-        'SEBAB: Pengrajin tenun dan petani kopi di Indonesia mulai memanfaatkan platform marketplace internasional, sistem pembayaran digital, dan jaringan kargo udara cepat.',
+        'Seorang ilustrator di Yogyakarta mengirimkan revisi buku anak ke penerbit di London melalui penyimpanan awan dan menerima honorarium lintas negara dalam waktu 15 menit. Namun, keesokan harinya usahanya ikut terdampak karena harga kertas cetak lokal melonjak akibat tersendatnya jalur kapal kargo internasional di Terusan Suez.',
       options: [
-        { id: 'ekspor', label: 'AKIBAT: Peluang ekspor produk UMKM menembus pasar global meningkat tanpa harus membuka cabang fisik di luar negeri' },
-        { id: 'tutup', label: 'AKIBAT: Perdagangan antarnegara melambat dan kembali bergantung pada sistem barter lokal' },
-        { id: 'anti', label: 'AKIBAT: Perusahaan multinasional tidak lagi membutuhkan standar mutu pengiriman' },
-        { id: 'hilang', label: 'AKIBAT: Seluruh produk lokal dilarang dijual di pasar domestik' },
+        {
+          id: 'ruang_waktu_ekonomi',
+          label:
+            'Perubahan konsep ruang dan waktu (penyampaian kerja instan lintas benua) serta meningkatnya ketergantungan ekonomi dalam rantai pasok global',
+        },
+        {
+          id: 'isolasi_kultural',
+          label:
+            'Pembatasan ketat interaksi kerja jarak jauh dan terputusnya ketergantungan bahan baku antarnegara dalam sistem perdagangan modern',
+        },
+        {
+          id: 'hedonisme_budaya',
+          label:
+            'Pergeseran orientasi kerja menjadi gaya hidup mengejar kemewahan sesaat tanpa keterkaitan dengan perubahan sistem distribusi barang',
+        },
+        {
+          id: 'hilirisasi_otonom',
+          label:
+            'Kemandirian penuh industri percetakan lokal yang membuat harga bahan baku dalam negeri kebal terhadap gangguan jalur laut dunia',
+        },
       ],
-      correctOptionId: 'ekspor',
+      correctOptionId: 'ruang_waktu_ekonomi',
       explanation:
-        'Digitalisasi perdagangan dan efisiensi transportasi memungkinkan pelaku usaha lokal menjangkau konsumen lintas negara secara langsung.',
+        'Konsep utama yang diuji adalah ciri-ciri globalisasi: pertama, perubahan konsep ruang dan waktu (time-space compression) terlihat dari transaksi kerja Yogyakarta–London dalam hitungan menit; kedua, ketergantungan ekonomi tampak saat gangguan jalur maritim global langsung mengerek harga bahan baku percetakan lokal.',
+      wrongExplanation:
+        'Keliru jika melihat kasus ini sebagai keterpisahan ekonomi lokal atau sekadar gaya hidup konsumtif. Bukti paling kuat di teks adalah kecepatan interaksi lintas jarak dan keterikatan harga lokal pada logistik dunia.',
     },
   },
   {
     id: 4,
     category: 'Bentuk Globalisasi',
+    subtopic: '2. Ciri-Ciri Globalisasi',
+    conceptTag: 'Interaksi Kultural Media Massa & Masalah Bersama Global',
     model: {
       id: 'fq_4',
-      type: 'concept_matching',
-      topic: 'Ragam Bentuk Globalisasi',
+      type: 'case_study',
+      topic: 'Ciri-Ciri Globalisasi · Studi Kasus 4',
+      subtopic: '2. Ciri-Ciri Globalisasi',
+      conceptTag: 'Interaksi Kultural Media Massa & Masalah Bersama Global',
       category: 'Bentuk Globalisasi',
-      prompt: 'Pasangkan fenomena sehari-hari berikut dengan bentuk globalisasi yang sesuai:',
-      pairs: [
-        { id: 'p1', term: 'Kapal kontainer & rute kargo udara internasional', match: 'Globalisasi Transportasi' },
-        { id: 'p2', term: 'Kolaborasi musik gamelan dan instrumen orkestra modern', match: 'Globalisasi Budaya (Akulturasi)' },
-        { id: 'p3', term: 'Investasi pabrik MNC & bursa saham lintas negara', match: 'Globalisasi Ekonomi' },
+      prompt: 'Analisis ciri globalisasi apa yang paling menonjol dalam fenomena media dan ekologi berikut:',
+      contextText:
+        'Sebuah film dokumenter tentang mencairnya gletser dan kebakaran hutan tropis ditayangkan serentak di platform streaming global dan memicu jutaan diskusi lintas bahasa di media sosial. Warganet dari berbagai negara mendesak adanya kesepakatan iklim bersama karena dampak anomali cuaca dan krisis pangan tidak mengenal batas wilayah negara.',
+      options: [
+        {
+          id: 'media_masalah_bersama',
+          label:
+            'Meningkatnya interaksi kultural melalui media massa dan meningkatnya kesadaran terhadap masalah bersama global (krisis iklim lintas batas)',
+        },
+        {
+          id: 'monokultur_dagang',
+          label:
+            'Penyeragaman mata uang perdagangan di kawasan regional tanpa melibatkan pertukaran gagasan melalui media massa maupun isu ekologis',
+        },
+        {
+          id: 'sekat_komunikasi',
+          label:
+            'Melemahnya daya jangkau media informasi digital sehingga masyarakat hanya memedulikan masalah lingkungan di desa masing-masing',
+        },
+        {
+          id: 'asimilasi_paksa',
+          label:
+            'Penghapusan seluruh bahasa nasional oleh lembaga penyiaran internasional demi menciptakan satu sistem pemerintahan tunggal dunia',
+        },
       ],
+      correctOptionId: 'media_masalah_bersama',
       explanation:
-        'Globalisasi terwujud di berbagai bidang kehidupan: transportasi, budaya, komunikasi, IPTEK, dan ekonomi.',
+        'Konsep utama yang diuji adalah ciri globalisasi berupa interaksi kultural lewat media massa (film dokumenter dan media sosial lintas negara) serta munculnya masalah bersama global—yakni krisis iklim dan ketahanan pangan—yang menuntut solusi kolektif antarnegara.',
+      wrongExplanation:
+        'Diskusi lintas bahasa di platform streaming dan desakan kerja sama iklim tidak berarti penghapusan bahasa atau penyeragaman mata uang, melainkan ciri keterhubungan media dan isu global bersama.',
     },
   },
+
+  // SUBTOPIK 3: BENTUK-BENTUK GLOBALISASI (2 Studi Kasus)
   {
     id: 5,
     category: 'Bentuk Globalisasi',
+    subtopic: '3. Bentuk-Bentuk Globalisasi',
+    conceptTag: 'Sinergi Globalisasi Budaya, Komunikasi, dan Transportasi',
     model: {
       id: 'fq_5',
-      type: 'true_false',
-      topic: 'Akulturasi vs Asimilasi Budaya',
+      type: 'case_study',
+      topic: 'Bentuk-Bentuk Globalisasi · Studi Kasus 5',
+      subtopic: '3. Bentuk-Bentuk Globalisasi',
+      conceptTag: 'Sinergi Globalisasi Budaya, Komunikasi, dan Transportasi',
       category: 'Bentuk Globalisasi',
-      prompt: 'Tentukan ketepatan pernyataan tentang globalisasi budaya berikut:',
+      prompt: 'Tentukan kombinasi bentuk globalisasi yang bekerja secara terpadu pada peristiwa seni berikut:',
       contextText:
-        '“Ketika remaja Indonesia memadukan alat musik tradisional angklung ke dalam aransemen pop modern sehingga dikenal dunia, peristiwa ini termasuk akulturasi karena identitas budaya asli tetap dipertahankan.”',
+        'Kelompok musik pelajar asal Banyuwangi memadukan instrumen gamelan dan kendang dengan aransemen musik elektronik, menyiarkan latihan kolaborasi secara langsung kepada penonton di Tokyo melalui konferensi video berdefinisi tinggi, lalu terbang membawa instrumen mereka dengan pesawat kargo langsung menuju festival seni di Osaka dalam tujuh jam.',
       options: [
-        { id: 'true', label: 'Benar — Unsur budaya lokal tetap tampak berpadu harmonis dengan unsur modern' },
-        { id: 'false', label: 'Salah — Perpaduan musik selalu menghilangkan unsur tradisional secara total' },
+        {
+          id: 'budaya_kom_trans',
+          label:
+            'Globalisasi budaya (akulturasi musik), globalisasi komunikasi (siaran video real-time), dan globalisasi transportasi (penerbangan kargo cepat)',
+        },
+        {
+          id: 'ekonomi_politik_hukum',
+          label:
+            'Globalisasi politik antarparlemen, penggabungan bank sentral internasional, dan harmonisasi undang-undang pidana antarbenua',
+        },
+        {
+          id: 'agraris_barter_tradisi',
+          label:
+            'Ekonomi barter lokal, komunikasi pos tertulis konvensional, serta pengangkutan komoditas tradisional menggunakan jalur darat lokal',
+        },
+        {
+          id: 'westernisasi_eksklusif',
+          label:
+            'Penghapusan alat musik daerah demi meniru orkestra Barat secara penuh tanpa pemanfaatan media komunikasi maupun transportasi modern',
+        },
       ],
-      correctOptionId: 'true',
+      correctOptionId: 'budaya_kom_trans',
       explanation:
-        'Akulturasi menerima unsur baru sambil menjaga kepribadian budaya asli, sedangkan asimilasi meleburkan keduanya hingga ciri asli memudar.',
+        'Konsep utama yang diuji adalah bentuk-bentuk globalisasi: perpaduan gamelan dan musik elektronik merupakan globalisasi budaya, konferensi video real-time merupakan globalisasi komunikasi, dan mobilitas pesawat kargo 7 jam ke Osaka merupakan globalisasi transportasi.',
+      wrongExplanation:
+        'Perhatikan bukti spesifik pada kasus: instrumen musik menunjukkan ranah budaya, siaran video langsung menunjukkan komunikasi, dan pesawat kargo jarak jauh menunjukkan transportasi—bukan penyatuan hukum atau penghapusan musik tradisi.',
     },
   },
   {
     id: 6,
     category: 'Bentuk Globalisasi',
+    subtopic: '3. Bentuk-Bentuk Globalisasi',
+    conceptTag: 'Globalisasi Ekonomi (TNC & E-Commerce) dan Globalisasi IPTEK (AI & Otomatisasi)',
     model: {
       id: 'fq_6',
-      type: 'statement_analysis',
-      topic: 'Karakteristik Globalisasi Modern',
+      type: 'case_study',
+      topic: 'Bentuk-Bentuk Globalisasi · Studi Kasus 6',
+      subtopic: '3. Bentuk-Bentuk Globalisasi',
+      conceptTag: 'Globalisasi Ekonomi (TNC & E-Commerce) dan Globalisasi IPTEK (AI & Otomatisasi)',
       category: 'Bentuk Globalisasi',
-      prompt: 'Pilih kombinasi pernyataan yang BENAR menggambarkan karakteristik globalisasi di bidang sosial-budaya dan transportasi:',
-      statements: [
-        '1. Penyusutan ruang dan waktu membuat mobilitas wisatawan dan pelajar antarbenua semakin tinggi',
-        '2. Masalah global seperti perubahan iklim memerlukan kerja sama lintas negara',
-        '3. Teknologi transportasi modern meniadakan kebutuhan jalur laut untuk kargo berat',
-        '4. Masyarakat lokal tetap memiliki ruang menyaring budaya asing secara selektif',
-      ],
+      prompt: 'Evaluasi bentuk globalisasi beserta tantangan sosiologis utamanya dalam kasus korporasi berikut:',
+      contextText:
+        'Sebuah perusahaan transnasional (TNC) memperluas jaringan marketplace lintas negaranya di Asia Tenggara dengan menerapkan kecerdasan buatan (AI) untuk memetakan pola belanja pelanggan sekaligus mengoperasikan gudang sortir robotik otomatis. Pekerja gudang tradisional yang belum menguasai pengoperasian perangkat lunak logistik mulai kesulitan bersaing.',
       options: [
-        { id: 'a', label: 'Pernyataan 1, 2, dan 4' },
-        { id: 'b', label: 'Pernyataan 1 dan 3 saja' },
-        { id: 'c', label: 'Pernyataan 2 dan 3 saja' },
-        { id: 'd', label: 'Pernyataan 3 dan 4 saja' },
+        {
+          id: 'ekonomi_iptek_upskill',
+          label:
+            'Perpaduan globalisasi ekonomi (TNC dan e-commerce lintas negara) serta globalisasi IPTEK (AI dan otomatisasi) yang menuntut peningkatan keterampilan SDM',
+        },
+        {
+          id: 'transportasi_klasik',
+          label:
+            'Globalisasi transportasi pelayaran uap abad ke-19 yang memperlambat distribusi barang sekaligus menambah kebutuhan tenaga angkut manual',
+        },
+        {
+          id: 'cultural_shock_wisata',
+          label:
+            'Globalisasi pariwisata budaya semata yang terjadi karena wisatawan asing tidak memahami tata krama berpakaian di wilayah setempat',
+        },
+        {
+          id: 'skeptis_autarki',
+          label:
+            'Bukti keberhasilan kebijakan ekonomi tertutup (autarki) yang memutus peran perusahaan multinasional dan teknologi otomatisasi dari pasar domestik',
+        },
       ],
-      correctOptionId: 'a',
+      correctOptionId: 'ekonomi_iptek_upskill',
       explanation:
-        'Sebagian besar perdagangan barang berat dunia masih memakai jalur maritim (kontainer laut), sedangkan mobilitas cepat (1), masalah bersama (2), dan selektivitas budaya (4) benar.',
+        'Konsep utama yang diuji adalah globalisasi ekonomi dan IPTEK. Operasi TNC dan e-commerce lintas negara mencerminkan globalisasi ekonomi, sementara AI dan robotika gudang merupakan wujud globalisasi IPTEK yang menggeser struktur kerja menuju keterampilan digital.',
+      wrongExplanation:
+        'Kasus ini berfokus pada sistem perdagangan lintas batas berbasis perusahaan transnasional dan otomatisasi AI—bukan pariwisata budaya ataupun ekonomi tertutup.',
     },
   },
 
-  // 6 Soal Proses Terjadinya Globalisasi & Analisis Kritis
+  // SUBTOPIK 4: TEORI-TEORI GLOBALISASI (2 Studi Kasus)
   {
     id: 7,
     category: 'Proses Globalisasi',
+    subtopic: '4. Teori-Teori Globalisasi',
+    conceptTag: 'Hiperglobalis vs Skeptis vs Transformasionalis (David Held & Anthony McGrew)',
     model: {
       id: 'fq_7',
-      type: 'process_sequence',
-      topic: 'Kronologi Sejarah Globalisasi',
+      type: 'case_study',
+      topic: 'Teori-Teori Globalisasi · Studi Kasus 7',
+      subtopic: '4. Teori-Teori Globalisasi',
+      conceptTag: 'Hiperglobalis vs Skeptis vs Transformasionalis (David Held & Anthony McGrew)',
       category: 'Proses Globalisasi',
-      prompt: 'Susun tahapan proses terjadinya globalisasi berikut sesuai urutan sejarah yang benar:',
-      steps: [
-        { id: 's1', label: 'Masa perdagangan kuno melalui Jalur Sutra dan jalur rempah maritim', order: 1 },
-        { id: 's2', label: 'Masa penjelajahan samudra dan persaingan jalur kolonial Eropa', order: 2 },
-        { id: 's3', label: 'Revolusi Industri dengan mesin pabrik, kereta api, dan kapal uap', order: 3 },
-        { id: 's4', label: 'Era digitalisasi internet global, satelit, dan komputasi AI', order: 4 },
+      prompt: 'Analisis tiga respons pengamat terhadap masuknya platform transportasi digital global berikut:',
+      contextText:
+        'Saat platform transportasi daring internasional masuk ke suatu kota, Pengamat 1 menyatakan batas regulasi negara kini kalah oleh kekuatan pasar digital global; Pengamat 2 menilai kekuatan modal tetap terpusat pada segelintir negara maju dan regulasi nasional masih sangat dominan; sementara Pengamat 3 berpendapat pemerintah menata ulang regulasinya dan melahirkan model kemitraan lokal-global yang dinamis.',
+      options: [
+        {
+          id: 'held_mcgrew_triad',
+          label:
+            'Pengamat 1 berperspektif Hiperglobalis, Pengamat 2 Skeptis, dan Pengamat 3 Transformasionalis (David Held & Anthony McGrew)',
+        },
+        {
+          id: 'semua_hiperglobalis',
+          label:
+            'Pengamat 1 dan 2 sama-sama mewakili kaum Hiperglobalis, sedangkan Pengamat 3 menolak terjadinya perubahan institusi negara',
+        },
+        {
+          id: 'periphery_core_reverse',
+          label:
+            'Pengamat 1 berperspektif Skeptis ekstrem, Pengamat 2 Transformasionalis, dan Pengamat 3 menganggap negara sudah lenyap total',
+        },
+        {
+          id: 'wallerstein_only',
+          label:
+            'Ketiga pengamat tersebut hanya membahas pembagian kelas tenaga kerja feodal sebelum Revolusi Industri di Eropa terjadi',
+        },
       ],
+      correctOptionId: 'held_mcgrew_triad',
       explanation:
-        'Globalisasi merupakan proses historis jangka panjang dari perdagangan kuno menuju era industri dan dunia digital saling terhubung.',
+        'Konsep utama yang diuji adalah tiga teori globalisasi (David Held & Anthony McGrew). Hiperglobalis melihat melemahnya batas negara oleh pasar global (Pengamat 1); Skeptis menekankan ketimpangan dan bertahannya peran negara kuat (Pengamat 2); Transformasionalis menekankan restrukturisasi peran negara dan arah perubahan yang dinamis (Pengamat 3).',
+      wrongExplanation:
+        'Hati-hati membedakan Skeptis dan Transformasionalis: Skeptis meragukan pemerataan globalisasi dan menyoroti dominasi negara besar, sedangkan Transformasionalis melihat globalisasi menata ulang peran negara dan menghasilkan bentuk sosial hibrida baru.',
     },
   },
   {
     id: 8,
     category: 'Proses Globalisasi',
+    subtopic: '4. Teori-Teori Globalisasi',
+    conceptTag: 'Teori Sistem Dunia Immanuel Wallerstein (Core, Semi-Periphery, Periphery)',
     model: {
       id: 'fq_8',
       type: 'case_study',
-      topic: 'Sistem Dunia Wallerstein',
+      topic: 'Teori-Teori Globalisasi · Studi Kasus 8',
+      subtopic: '4. Teori-Teori Globalisasi',
+      conceptTag: 'Teori Sistem Dunia Immanuel Wallerstein (Core, Semi-Periphery, Periphery)',
       category: 'Proses Globalisasi',
-      prompt: 'Analisis posisi kedua negara berikut menurut Teori Sistem Dunia Immanuel Wallerstein:',
+      prompt: 'Tentukan klasifikasi posisi negara dalam rantai produksi global berikut menurut Immanuel Wallerstein:',
       contextText:
-        'Negara X mengekspor bahan mineral mentah berharga murah, sementara Negara Y memegang hak paten semikonduktor, modal perbankan global, serta mengekspor perangkat elektronik bernilai jual tinggi ke Negara X.',
+        'Negara P mengekspor bijih nikel dan karet mentah berharga rendah tanpa pabrik pengolahan; Negara Q mengoperasikan kawasan manufaktur perakitan komponen berbiaya menengah serta mulai mengekspor barang jadi ke kawasan sekitar; sedangkan Negara R menguasai paten chip, riset baterai generasi baru, perbankan internasional, dan meraih margin keuntungan terbesar.',
       options: [
-        { id: 'periphery_core', label: 'Negara X adalah Periphery dan Negara Y adalah Core' },
-        { id: 'core_periphery', label: 'Negara X adalah Core dan Negara Y adalah Periphery' },
-        { id: 'semi_periphery', label: 'Keduanya merupakan negara Non-Ekonomi di luar sistem pasar' },
-        { id: 'equal', label: 'Keduanya memperoleh porsi nilai tambah ekonomi yang persis setara' },
+        {
+          id: 'wallerstein_hierarchy',
+          label:
+            'Negara P adalah Periphery, Negara Q adalah Semi-Periphery, dan Negara R adalah Core yang menguasai modal serta paten teknologi tinggi',
+        },
+        {
+          id: 'wallerstein_flipped',
+          label:
+            'Negara P adalah Core karena memiliki bahan tambang mentah, sedangkan Negara R adalah Periphery karena bergantung pada hak paten',
+        },
+        {
+          id: 'wallerstein_flat',
+          label:
+            'Ketiga negara menempati posisi Core yang setara karena seluruh transaksi ekspor-impor otomatis membagi keuntungan sama rata',
+        },
+        {
+          id: 'wallerstein_semi_all',
+          label:
+            'Negara P dan Negara R sama-sama berstatus Semi-Periphery yang terisolasi dari rantai pasok sistem kapitalis dunia modern',
+        },
       ],
-      correctOptionId: 'periphery_core',
+      correctOptionId: 'wallerstein_hierarchy',
       explanation:
-        'Menurut Wallerstein, negara Core menguasai paten teknologi dan industri bernilai tinggi, sedangkan Periphery memasok bahan mentah murah.',
+        'Konsep utama yang diuji adalah Teori Sistem Dunia Immanuel Wallerstein. Negara Periphery (P) memasok bahan mentah murah, Negara Semi-Periphery (Q) berperan sebagai penengah manufaktur/perakitan, dan Negara Core (R) menguasai riset, paten, serta modal sehingga mengakumulasi nilai tambah terbesar.',
+      wrongExplanation:
+        'Memiliki kekayaan sumber daya alam mentah saja tidak menjadikan suatu negara berstatus Core; dalam teori Wallerstein, status Core ditentukan oleh penguasaan modal, teknologi tinggi, dan nilai tambah industri.',
     },
   },
+
+  // SUBTOPIK 5: PROSES TERJADINYA GLOBALISASI (2 Studi Kasus)
   {
     id: 9,
     category: 'Proses Globalisasi',
+    subtopic: '5. Proses Terjadinya Globalisasi',
+    conceptTag: 'Perdagangan Kuno (Jalur Sutra & Rempah) Menuju Kolonialisme & Revolusi Industri',
     model: {
       id: 'fq_9',
-      type: 'concept_matching',
-      topic: 'Tiga Perspektif Utama Globalisasi',
+      type: 'case_study',
+      topic: 'Proses Terjadinya Globalisasi · Studi Kasus 9',
+      subtopic: '5. Proses Terjadinya Globalisasi',
+      conceptTag: 'Perdagangan Kuno (Jalur Sutra & Rempah) Menuju Kolonialisme & Revolusi Industri',
       category: 'Proses Globalisasi',
-      prompt: 'Pasangkan ketiga perspektif teori globalisasi dengan gagasan utamanya:',
-      pairs: [
-        { id: 'p1', term: 'Hyperglobalist (REX)', match: 'Batas negara kian melemah akibat pasar bebas & jaringan teknologi menuju borderless world' },
-        { id: 'p2', term: 'Transformationalist (BIMA)', match: 'Globalisasi menata ulang peran negara & budaya secara dinamis serta beragam arah' },
-        { id: 'p3', term: 'Skeptic (RATU LARAS)', match: 'Globalisasi merata adalah mitos karena ketimpangan Core–Periphery dan kontrol negara maju tetap kuat' },
+      prompt: 'Analisis pergeseran tahap historis globalisasi dari temuan arkeologis dan arsip dagang berikut:',
+      contextText:
+        'Ekskavasi pelabuhan kuno di Nusantara menemukan koin perak Arab, porselen Tiongkok, dan catatan niaga cengkih Maluku dari abad ke-14 yang bertukar secara lintas budaya. Namun pada abad ke-18 hingga ke-19, pola itu bergeser drastis saat jaringan kapal uap, rel kereta, dan pabrik tekstil Eropa memonopoli jalur rempah serta bahan mentah secara terpusat.',
+      options: [
+        {
+          id: 'historis_kuno_industri',
+          label:
+            'Transisi dari fase perdagangan kuno (Jalur Sutra & Jalur Rempah) menuju ekspansi kolonialisme dan mekanisasi Revolusi Industri',
+        },
+        {
+          id: 'digital_ai_kuno',
+          label:
+            'Loncatan langsung dari era komputasi awan modern menuju sistem perdagangan barter lokal tanpa teknologi mesin atau pelayaran',
+        },
+        {
+          id: 'pasca_digital_monopoli',
+          label:
+            'Fase informasi dan digital abad ke-21 yang ditandai oleh pertukaran data serat optik bawah laut tanpa melibatkan jalur rempah maritim',
+        },
+        {
+          id: 'deglobalisasi_total',
+          label:
+            'Berhentinya seluruh interaksi niaga antarbenua sejak abad ke-15 hingga terciptanya pasar bebas digital pada awal abad ke-21',
+        },
       ],
+      correctOptionId: 'historis_kuno_industri',
       explanation:
-        'Memahami ketiga teori ini adalah kompetensi inti analisis proses terjadinya globalisasi pada Sosiologi Kelas XII.',
+        'Konsep utama yang diuji adalah proses historis terjadinya globalisasi. Interaksi niaga abad ke-14 berakar pada Jalur Sutra dan Jalur Rempah Maritim (perdagangan kuno), lalu bertransformasi melalui kolonialisme dan Revolusi Industri (kapal uap, kereta, pabrik produksi massal) yang mempercepat integrasi sekaligus dominasi pasar global.',
+      wrongExplanation:
+        'Globalisasi tidak baru lahir saat ada internet; ia berakar dari jaringan niaga Jalur Sutra dan Jalur Rempah, lalu dipercepat oleh kolonialisme dan mesin uap Revolusi Industri.',
     },
   },
   {
     id: 10,
     category: 'Proses Globalisasi',
+    subtopic: '5. Proses Terjadinya Globalisasi',
+    conceptTag: 'Karakteristik Fase Informasi & Digital Modern dalam Proses Globalisasi',
     model: {
       id: 'fq_10',
-      type: 'multiple_choice',
-      topic: 'Cultural Lag dalam Masyarakat Digital',
+      type: 'case_study',
+      topic: 'Proses Terjadinya Globalisasi · Studi Kasus 10',
+      subtopic: '5. Proses Terjadinya Globalisasi',
+      conceptTag: 'Karakteristik Fase Informasi & Digital Modern dalam Proses Globalisasi',
       category: 'Proses Globalisasi',
-      prompt:
-        'Di sebuah wilayah, jaringan internet 5G dan kecerdasan buatan sudah dipakai luas oleh siswa setiap hari, tetapi kesadaran etika privasi data dan saring hoaks masyarakat jauh tertinggal. Fenomena ketimpangan kecepatan ini disebut...',
+      prompt: 'Tentukan pembeda utama fase informasi dan digital modern dari era industri sebelumnya pada kasus berikut:',
+      contextText:
+        'Berbeda dari perusahaan manufaktur abad ke-19 yang harus mengirim jutaan ton barang fisik memakai armada kapal uap dan mendirikan gudang kolonial di banyak pelabuhan, sebuah tim rintisan berisi 25 insinyur di lima negara kini mengelola platform layanan komputasi awan bagi jutaan pengguna dunia dalam hitungan detik melalui kabel serat optik dan satelit.',
       options: [
-        { id: 'cultural_lag', label: 'Cultural lag (ketertinggalan budaya nonmateriil dari budaya materiil)' },
-        { id: 'glokalisasi', label: 'Glokalisasi budaya lokal' },
-        { id: 'hyperglobalis', label: 'Integrasi pasar hiperglobalis' },
-        { id: 'hilirisasi', label: 'Hilirisasi ekonomi kreatif' },
+        {
+          id: 'fase_digital_modern',
+          label:
+            'Pertukaran nilai ekonomi dan informasi berlangsung seketika berbasis jaringan data digital, komputasi awan, dan kolaborasi kerja lintas benua',
+        },
+        {
+          id: 'fase_jalur_sutra',
+          label:
+            'Ketergantungan mutlak pada karavan darat dan kapal layar musiman agar pesan serta produk dapat berpindah antarpusat perdagangan',
+        },
+        {
+          id: 'fase_ekstraksi_uap',
+          label:
+            'Dominasi mesin uap batu bara sebagai satu-satunya penggerak konektivitas ekonomi dan komunikasi antarpulau di tingkat dunia',
+        },
+        {
+          id: 'fase_isolasi_informasi',
+          label:
+            'Melemahnya akses pengetahuan lintas negara karena pekerja perangkat lunak hanya boleh berkolaborasi di satu ruang kantor fisik',
+        },
       ],
-      correctOptionId: 'cultural_lag',
+      correctOptionId: 'fase_digital_modern',
       explanation:
-        'Cultural lag terjadi ketika perkembangan teknologi (budaya materiil) jauh mendahului kesiapan nilai, aturan, dan kesadaran moral (budaya nonmateriil).',
+        'Konsep utama yang diuji adalah fase informasi dan digital modern dalam proses globalisasi. Berbeda dengan fase Revolusi Industri yang bertumpu pada mesin mekanik dan barang fisik, fase digital bertumpu pada arus data instan, infrastruktur internet/satelit, serta organisasi kerja virtual lintas batas.',
+      wrongExplanation:
+        'Perubahan utama fase modern bukan kembali ke pelayaran musiman atau mesin batu bara, melainkan perpindahan pusat konektivitas ke infrastruktur informasi digital real-time.',
     },
   },
+
+  // SUBTOPIK 6: CONTOH NYATA & DAMPAK GLOBALISASI (2 Studi Kasus)
   {
     id: 11,
-    category: 'Proses Globalisasi',
+    category: 'Bentuk Globalisasi',
+    subtopic: '6. Contoh Nyata & Dampak Globalisasi',
+    conceptTag: 'Glokalisasi & Efisiensi IPTEK vs Culture Shock & Cultural Lag',
     model: {
       id: 'fq_11',
-      type: 'cause_effect',
-      topic: 'Tantangan Ketimpangan & Kedaulatan',
-      category: 'Proses Globalisasi',
-      prompt: 'Tentukan SEBAB yang tepat atas munculnya ketergantungan ekonomi jangka panjang di negara berkembang:',
+      type: 'case_study',
+      topic: 'Contoh & Dampak Globalisasi · Studi Kasus 11',
+      subtopic: '6. Contoh Nyata & Dampak Globalisasi',
+      conceptTag: 'Glokalisasi & Efisiensi IPTEK vs Culture Shock & Cultural Lag',
+      category: 'Bentuk Globalisasi',
+      prompt: 'Pilah dampak positif dan negatif globalisasi yang muncul bersamaan di desa wisata berikut:',
       contextText:
-        'AKIBAT: Negara berkembang terus mengalami defisit nilai tambah karena menjual bahan mentah murah dan membeli kembali produk teknologi canggih dengan harga berlipat.',
+        'Perajin tenun di sebuah desa wisata memakai pembayaran QRIS lintas negara untuk mengefisienkan transaksi wisatawan asing dan merancang motif modern berakar filosofi adat (langkah A). Namun, beberapa warga lanjut usia merasa terkejut dan canggung menghadapi cara berpakaian wisatawan yang sangat berbeda dari norma desa (gejala B), sementara sejumlah remaja mengunggah foto pribadi tamu ke media sosial tanpa izin karena belum memahami etika privasi digital (gejala C).',
       options: [
-        { id: 'sebab_hilirisasi', label: 'SEBAB: Rendahnya penguasaan riset teknologi tinggi, ketiadaan hilirisasi industri, serta ketergantungan modal dan paten asing' },
-        { id: 'sebab_glokalisasi', label: 'SEBAB: Tingginya kreativitas anak muda dalam melestarikan seni tradisional' },
-        { id: 'sebab_literasi', label: 'SEBAB: Terlalu kuatnya pendidikan sains dan penguasaan paten di dalam negeri' },
-        { id: 'sebab_koperasi', label: 'SEBAB: Meluasnya koperasi UMKM digital berdaya saing ekspor tinggi' },
+        {
+          id: 'glokalisasi_shock_lag',
+          label:
+            'Langkah A adalah glokalisasi & efisiensi IPTEK (positif), gejala B adalah culture shock, dan gejala C adalah cultural lag',
+        },
+        {
+          id: 'westernisasi_semua',
+          label:
+            'Langkah A adalah westernisasi total, gejala B adalah demokratisasi informasi, dan gejala C adalah keberhasilan akulturasi budaya',
+        },
+        {
+          id: 'lag_dan_shock_terbalik',
+          label:
+            'Gejala B adalah cultural lag akibat kemajuan aplikasi foto, sedangkan gejala C adalah glokalisasi karena memakai media sosial',
+        },
+        {
+          id: 'asimilasi_monopoli',
+          label:
+            'Langkah A membuktikan hilangnya budaya tenun asli desa, sedangkan gejala B dan C merupakan contoh kesuksesan literasi etika digital',
+        },
       ],
-      correctOptionId: 'sebab_hilirisasi',
+      correctOptionId: 'glokalisasi_shock_lag',
       explanation:
-        'Kunci memutus ketergantungan sistem dunia adalah membangun riset IPTEK, pendidikan bermutu, serta hilirisasi industri bernilai tambah tinggi.',
+        'Konsep utama yang diuji adalah dampak globalisasi: inovasi tenun bernilai adat dengan transaksi digital adalah glokalisasi dan efisiensi IPTEK; keterkejutan warga menghadapi nilai budaya baru adalah culture shock; dan penggunaan media sosial tanpa kesiapan norma privasi adalah cultural lag (ketimpangan antara teknologi materiil dan etika nonmateriil).',
+      wrongExplanation:
+        'Jangan tertukar antara culture shock dan cultural lag: culture shock ialah kegamangan saat bertemu budaya asing yang berbeda, sedangkan cultural lag ialah tertinggalnya norma/aturan etika di belakang kemajuan teknologi.',
     },
   },
   {
     id: 12,
     category: 'Proses Globalisasi',
+    subtopic: '6. Contoh Nyata & Dampak Globalisasi',
+    conceptTag: 'Westernisasi, Konsumerisme, Hedonisme & Kesenjangan Sosial-Ekonomi',
     model: {
       id: 'fq_12',
-      type: 'true_false',
-      topic: 'Sikap Kritis Menghadapi Globalisasi',
+      type: 'case_study',
+      topic: 'Contoh & Dampak Globalisasi · Studi Kasus 12',
+      subtopic: '6. Contoh Nyata & Dampak Globalisasi',
+      conceptTag: 'Westernisasi, Konsumerisme, Hedonisme & Kesenjangan Sosial-Ekonomi',
       category: 'Proses Globalisasi',
-      prompt: 'Evaluasi pernyataan penutup tentang sikap generasi muda Indonesia di era globalisasi:',
+      prompt: 'Diagnosis kombinasi dampak negatif globalisasi yang tergambar dalam fenomena perkotaan berikut:',
       contextText:
-        '“Sikap terbaik menghadapi globalisasi adalah menjadi warga dunia yang terbuka berkolaborasi secara kreatif, kritis menyaring budaya luar, sekaligus menjunjung kearifan lokal Nusantara.”',
+        'Promosi gaya hidup mewah luar negeri lewat siaran langsung e-commerce mendorong sebagian pelajar kota besar berutang memakai layanan paylater demi membeli produk bermerek Barat agar dianggap paling modern dan mengejar kesenangan sesaat, meski sebenarnya melampaui kemampuan ekonomi mereka. Di sisi lain, buruh harian di pinggiran kota kian sulit mengejar kenaikan harga hunian dan kalah bersaing karena tidak memiliki akses modal maupun literasi digital.',
       options: [
-        { id: 'true', label: 'Benar — Keterbukaan kritis dan pelestarian identitas lokal berjalan beriringan' },
-        { id: 'false', label: 'Salah — Pelajar harus memilih menolak seluruh teknologi modern demi tradisi' },
+        {
+          id: 'negatif_lengkap',
+          label:
+            'Munculnya westernisasi, konsumerisme, hedonisme pada kelompok konsumen digital, sekaligus melebarnya kesenjangan sosial-ekonomi akibat ketimpangan akses modal',
+        },
+        {
+          id: 'dampak_positif_merata',
+          label:
+            'Terwujudnya demokratisasi kesejahteraan yang merata dan glokalisasi ekonomi produktif bagi seluruh lapisan warga kota tanpa efek samping',
+        },
+        {
+          id: 'akulturasi_harmonis',
+          label:
+            'Proses akulturasi budaya Nusantara yang menyaring perilaku belanja berlebihan sehingga kesenjangan sosial otomatis menghilang di perkotaan',
+        },
+        {
+          id: 'isolasi_ekonomi_kota',
+          label:
+            'Terhentinya arus barang impor dan teknologi finansial yang menyebabkan masyarakat perkotaan kembali pada pola konsumsi tradisional',
+        },
       ],
-      correctOptionId: 'true',
+      correctOptionId: 'negatif_lengkap',
       explanation:
-        'Sintesis dari seluruh misi GLOBALUS menekankan keseimbangan antara penguasaan sains/komunikasi global, keadilan ekonomi, dan ketahanan budaya Nusantara.',
+        'Konsep utama yang diuji adalah dampak negatif globalisasi. Mengagungkan label Barat mencerminkan westernisasi; membeli di luar kebutuhan lewat paylater mencerminkan konsumerisme; mengejar kepuasan sesaat mencerminkan hedonisme; dan tertinggalnya pekerja tanpa akses modal/digital menunjukkan kesenjangan sosial-ekonomi.',
+      wrongExplanation:
+        'Berutang demi gengsi merek Barat dan kesenangan sesaat bukanlah akulturasi ataupun glokalisasi produktif, melainkan gabungan westernisasi, konsumerisme, hedonisme, yang berdampingan dengan ketimpangan sosial.',
     },
   },
 ];
+
+export const SOLO_BADGE_CRITERIA = {
+  weights: {
+    quizAccuracy: 50,
+    missionMastery: 25,
+    consistency: 15,
+    duration: 10,
+  },
+  thresholds: {
+    gold: { minComposite: 85, minQuizAccuracy: 80, label: 'GOLD' },
+    silver: { minComposite: 68, minQuizAccuracy: 58, label: 'SILVER' },
+    bronze: { minComposite: 0, minQuizAccuracy: 0, label: 'BRONZE' },
+  },
+  generousDurationCapMs: 45 * 60 * 1000, // <= 45 menit mendapat 100% poin waktu agar ketelitian membaca tidak dirugikan
+  maxTimedWindowMs: 90 * 60 * 1000,
+} as const;
+
+export const SOLO_BADGE_TIER_META: Record<
+  SoloBadgeTier,
+  {
+    title: string;
+    shortLabel: string;
+    colorHex: string;
+    borderClass: string;
+    bgClass: string;
+    summary: string;
+  }
+> = {
+  gold: {
+    title: 'SOLO ACHIEVEMENT BADGE — GOLD',
+    shortLabel: 'GOLD',
+    colorHex: '#f59e0b',
+    borderClass: 'border-amber-400/75',
+    bgClass: 'bg-amber-500/15',
+    summary:
+      'Pencapaian tertinggi! Ketepatan analisis studi kasus, ketuntasan misi & buku teori, konsistensi, serta ritme bermainmu seimbang dan cermat.',
+  },
+  silver: {
+    title: 'SOLO ACHIEVEMENT BADGE — SILVER',
+    shortLabel: 'SILVER',
+    colorHex: '#cbd5e1',
+    borderClass: 'border-slate-300/70',
+    bgClass: 'bg-slate-400/15',
+    summary:
+      'Pencapaian sangat baik! Pemahaman konsep globalisasi sudah kuat dan konsisten. Tingkatkan ketelitian studi kasus untuk meraih Gold.',
+  },
+  bronze: {
+    title: 'SOLO ACHIEVEMENT BADGE — BRONZE',
+    shortLabel: 'BRONZE',
+    colorHex: '#d97706',
+    borderClass: 'border-orange-400/70',
+    bgClass: 'bg-orange-500/15',
+    summary:
+      'Petualangan Solo berhasil dituntaskan! Tinjau kembali pembahasan studi kasus dan baca seluruh buku teori untuk meningkatkan badge-mu.',
+  },
+};
+
+const SOLO_TIER_RANK: Record<SoloBadgeTier, number> = {
+  bronze: 1,
+  silver: 2,
+  gold: 3,
+};
+
+export function pickHigherSoloBadge(
+  a: SoloBadgeTier | null | undefined,
+  b: SoloBadgeTier | null | undefined
+): SoloBadgeTier | null {
+  if (!a) return b ?? null;
+  if (!b) return a;
+  return SOLO_TIER_RANK[a] >= SOLO_TIER_RANK[b] ? a : b;
+}
+
+export function evaluateSoloAchievementBadge(params: {
+  state: Pick<
+    SaveState,
+    | 'completedChapters'
+    | 'completedMissions'
+    | 'missionScores'
+    | 'missionFirstScores'
+    | 'readBooks'
+  >;
+  quizCorrectCount: number;
+  quizTotalCount: number;
+  durationMs: number | null;
+  runId: string;
+  now?: number;
+}): {
+  eligible: boolean;
+  reasonIfIneligible?: string;
+  record: SoloBadgeRecord | null;
+} {
+  const { state, quizCorrectCount, quizTotalCount, durationMs, runId, now = Date.now() } = params;
+  const chaptersCompleted = new Set(state.completedChapters || []).size;
+  const missionsCompleted = new Set(state.completedMissions || []).size;
+
+  if (!runId || chaptersCompleted < 5 || missionsCompleted < 10 || quizTotalCount <= 0) {
+    return {
+      eligible: false,
+      reasonIfIneligible:
+        'Mode Solo belum tuntas sepenuhnya (memerlukan 5 Chapter, 10 Misi, dan Final Quiz).',
+      record: null,
+    };
+  }
+
+  const clampedCorrect = Math.max(0, Math.min(quizTotalCount, Math.round(quizCorrectCount)));
+  const quizAccuracyPct = Math.round((clampedCorrect / quizTotalCount) * 100);
+
+  const allMissionIds: MissionId[] = [
+    'ch1_m1',
+    'ch1_m2',
+    'ch2_m1',
+    'ch2_m2',
+    'ch3_m1',
+    'ch3_m2',
+    'ch4_m1',
+    'ch4_m2',
+    'ch5_m1',
+    'ch5_m2',
+  ];
+
+  const missionAvgPct =
+    allMissionIds.reduce((sum, mId) => sum + Math.max(0, Math.min(100, state.missionScores?.[mId] ?? 0)), 0) /
+    allMissionIds.length;
+
+  const totalBooks = 11;
+  const booksReadCount = Math.min(totalBooks, new Set(state.readBooks || []).size);
+  const bookPct = (booksReadCount / totalBooks) * 100;
+  const missionMasteryPct = Math.round(missionAvgPct * 0.7 + bookPct * 0.3);
+
+  const consistencyPct = Math.round(
+    allMissionIds.reduce((sum, mId) => {
+      const firstScore = state.missionFirstScores?.[mId];
+      const fallback = state.missionScores?.[mId] ?? 0;
+      const val = typeof firstScore === 'number' && Number.isFinite(firstScore) ? firstScore : fallback;
+      return sum + Math.max(0, Math.min(100, val));
+    }, 0) / allMissionIds.length
+  );
+
+  // Normalized duration: any playthrough <= 45 min gets 100% (no penalty for careful reading!),
+  // 45..90 min scales gently 100% -> 60%, > 90 min = 50% (never makes accurate player drop unfairly).
+  let durationScorePct = 85;
+  if (typeof durationMs === 'number' && Number.isFinite(durationMs) && durationMs > 0) {
+    const cap = SOLO_BADGE_CRITERIA.generousDurationCapMs;
+    const maxW = SOLO_BADGE_CRITERIA.maxTimedWindowMs;
+    if (durationMs <= cap) {
+      durationScorePct = 100;
+    } else if (durationMs >= maxW) {
+      durationScorePct = 50;
+    } else {
+      const ratio = (durationMs - cap) / (maxW - cap);
+      durationScorePct = Math.round(100 - ratio * 40);
+    }
+  }
+
+  const compositeScore = Math.max(
+    0,
+    Math.min(
+      100,
+      Math.round(
+        quizAccuracyPct * 0.5 +
+          missionMasteryPct * 0.25 +
+          consistencyPct * 0.15 +
+          durationScorePct * 0.1
+      )
+    )
+  );
+
+  let tier: SoloBadgeTier = 'bronze';
+  if (
+    compositeScore >= SOLO_BADGE_CRITERIA.thresholds.gold.minComposite &&
+    quizAccuracyPct >= SOLO_BADGE_CRITERIA.thresholds.gold.minQuizAccuracy
+  ) {
+    tier = 'gold';
+  } else if (
+    compositeScore >= SOLO_BADGE_CRITERIA.thresholds.silver.minComposite &&
+    quizAccuracyPct >= SOLO_BADGE_CRITERIA.thresholds.silver.minQuizAccuracy
+  ) {
+    tier = 'silver';
+  }
+
+  const breakdown: SoloBadgeBreakdown = {
+    quizAccuracyPct,
+    missionMasteryPct,
+    consistencyPct,
+    durationScorePct,
+    booksReadCount,
+    booksTotalCount: totalBooks,
+  };
+
+  return {
+    eligible: true,
+    record: {
+      runId,
+      tier,
+      compositeScore,
+      quizScore: quizAccuracyPct,
+      quizCorrectCount: clampedCorrect,
+      quizTotalCount,
+      missionsCompleted,
+      chaptersCompleted,
+      consistencyScore: consistencyPct,
+      durationMs: durationMs && durationMs > 0 ? durationMs : null,
+      breakdown,
+      earnedAt: now,
+    },
+  };
+}
 
 export function getBadgeFromScore(score: number): {
   rank: BadgeRank;

@@ -133,6 +133,7 @@ export const ROOMS: Record<RoomId, RoomDef> = {
     chapter: 2,
     missionId: 'ch2_m1',
     doorId: 'door_en',
+    neverLock: true,
     center: { x: 18, z: -16 },
     bounds: { minX: 11, maxX: 25, minZ: -22, maxZ: -10 },
     accentHex: '#10b981',
@@ -363,8 +364,8 @@ export const DOORS: DoorDef[] = [
   { id: 'door_ws', x: -18, z: 10, orientation: 'horizontal', width: 6.4, accentHex: '#6366f1', label: 'Technology Lab', requiredChapter: 3, roomId: 'technology_lab' },
   { id: 'door_wfar', x: -30, z: 0, orientation: 'vertical', width: 6.4, accentHex: '#2563eb', label: 'Navigation Room', requiredChapter: 1, roomId: 'navigation_room' },
 
-  { id: 'door_e1', x: 9, z: 0, orientation: 'vertical', width: 6.4, accentHex: '#10b981', label: 'Sayap Timur (Ch.2 & Ch.4)', requiredChapter: 2 },
-  { id: 'door_en', x: 18, z: -10, orientation: 'horizontal', width: 6.4, accentHex: '#10b981', label: 'Cultural Room', requiredChapter: 2, roomId: 'cultural_room' },
+  { id: 'door_e1', x: 9, z: 0, orientation: 'vertical', width: 6.4, accentHex: '#10b981', label: 'Sayap Timur (Cultural, Exchange & Economic)' },
+  { id: 'door_en', x: 18, z: -10, orientation: 'horizontal', width: 6.4, accentHex: '#10b981', label: 'Cultural Room', roomId: 'cultural_room' },
   { id: 'door_es', x: 18, z: 10, orientation: 'horizontal', width: 6.4, accentHex: '#f59e0b', label: 'Economic Room', requiredChapter: 4, roomId: 'economic_room' },
   { id: 'door_efar', x: 30, z: 0, orientation: 'vertical', width: 6.4, accentHex: '#14b8a6', label: 'Global Exchange', requiredChapter: 2, roomId: 'global_exchange_room' },
 
@@ -1047,6 +1048,9 @@ export function getChapterLockedDoorIds(
 ): string[] {
   const locked: string[] = [];
   for (const d of DOORS) {
+    if (d.id === 'door_en' || d.id === 'door_e1' || d.roomId === 'cultural_room') {
+      continue;
+    }
     if (d.requiresAllChapters) {
       if (completedChaptersCount < 5) locked.push(d.id);
       continue;
@@ -1064,6 +1068,9 @@ export function getChapterLockedRooms(
 ): RoomId[] {
   const locked: RoomId[] = [];
   for (const room of Object.values(ROOMS)) {
+    if (room.id === 'cultural_room') {
+      continue;
+    }
     if (room.id === 'earth_observation_room') {
       if (completedChaptersCount < 5) locked.push(room.id);
       continue;

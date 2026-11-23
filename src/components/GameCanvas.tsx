@@ -2453,6 +2453,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         const isTermCompLocked = !isMp && completedLockedRoomSetRef.current.has(term.roomId);
         const isTermChapLocked =
           !isMp &&
+          term.roomId !== 'cultural_room' &&
           ((termRoom?.chapter !== undefined && termRoom.chapter > curUnlockedChap) ||
             (term.roomId === 'earth_observation_room' && completedChaptersCountRef.current < 5));
         let outlineColorHex = 0x38bdf8;
@@ -2556,6 +2557,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         const isRoomCompLocked = !isMp && completedLockedRoomSetRef.current.has(tb.roomId);
         const isRoomChapLocked =
           !isMp &&
+          tb.roomId !== 'cultural_room' &&
           ((bookRoom?.chapter !== undefined && bookRoom.chapter > curUnlockedChap) ||
             (tb.roomId === 'earth_observation_room' && completedChaptersCountRef.current < 5));
 

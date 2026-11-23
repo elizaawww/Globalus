@@ -129,22 +129,49 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
     onResult(correct);
   };
 
+  const correctSingleInfo = useMemo(() => {
+    if (prepared.kind !== 'single') return null;
+    const idx = prepared.shuffledOptions.findIndex(
+      (opt) => opt.id === prepared.question.correctOptionId
+    );
+    if (idx < 0) return null;
+    const letter = ['A', 'B', 'C', 'D'][idx] || String(idx + 1);
+    return { letter, opt: prepared.shuffledOptions[idx] };
+  }, [prepared]);
+
+  const chosenSingleOption = useMemo(() => {
+    if (prepared.kind !== 'single' || !selectedOptionId) return null;
+    return prepared.shuffledOptions.find((opt) => opt.id === selectedOptionId) || null;
+  }, [prepared, selectedOptionId]);
+
+  const canonicalSequence = useMemo(() => {
+    if (prepared.kind !== 'sequence') return [];
+    return [...prepared.question.steps].sort((a, b) => a.order - b.order);
+  }, [prepared]);
+
   return (
     <div className="space-y-4">
       {/* Top Question Type & Topic Strip */}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <span
-          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-[11px] font-bold ${badgeInfo.colorClass}`}
-        >
-          {question.type === 'concept_matching' && <Link2 className="w-3.5 h-3.5" />}
-          {question.type === 'process_sequence' && <ListChecks className="w-3.5 h-3.5" />}
-          {question.type === 'cause_effect' && <GitBranch className="w-3.5 h-3.5" />}
-          {question.type === 'statement_analysis' && <Scale className="w-3.5 h-3.5" />}
-          {(question.type === 'multiple_choice' ||
-            question.type === 'true_false' ||
-            question.type === 'case_study') && <Sparkles className="w-3.5 h-3.5" />}
-          {badgeInfo.label}
-        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <span
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-[11px] font-bold ${badgeInfo.colorClass}`}
+          >
+            {question.type === 'concept_matching' && <Link2 className="w-3.5 h-3.5" />}
+            {question.type === 'process_sequence' && <ListChecks className="w-3.5 h-3.5" />}
+            {question.type === 'cause_effect' && <GitBranch className="w-3.5 h-3.5" />}
+            {question.type === 'statement_analysis' && <Scale className="w-3.5 h-3.5" />}
+            {(question.type === 'multiple_choice' ||
+              question.type === 'true_false' ||
+              question.type === 'case_study') && <Sparkles className="w-3.5 h-3.5" />}
+            {badgeInfo.label}
+          </span>
+          {question.subtopic && (
+            <span className="px-2 py-0.5 rounded-md bg-slate-800/90 border border-slate-700 text-[10px] font-semibold text-amber-200">
+              {question.subtopic}
+            </span>
+          )}
+        </div>
         <span className="text-[11px] text-slate-400 font-semibold">{question.topic}</span>
       </div>
 
@@ -386,29 +413,90 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
         </div>
       )}
 
-      {/* Feedback & Next */}
+      {/* Feedback & Pembahasan Sosiologi (#52) */}
       {answered && (
         <div
-          className={`rounded-xl p-4 border space-y-2 ${
+          className={`rounded-xl p-4 border space-y-3 ${
             isCorrect
-              ? 'bg-emerald-500/15 border-emerald-400/50'
-              : 'bg-rose-500/15 border-rose-400/50'
+              ? 'bg-emerald-500/15 border-emerald-400/55'
+              : 'bg-rose-500/15 border-rose-400/55'
           }`}
         >
-          <div className="flex items-center gap-2 font-bold text-sm">
-            {isCorrect ? (
-              <>
-                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                <span className="text-emerald-300">Jawaban Tepat!</span>
-              </>
-            ) : (
-              <>
-                <XCircle className="w-4 h-4 text-rose-400" />
-                <span className="text-rose-300">Kurang Tepat — Simak Penjelasannya:</span>
-              </>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2 font-bold text-sm">
+              {isCorrect ? (
+                <>
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span className="text-emerald-300">Status: BENAR — Jawaban Tepat!</span>
+                </>
+              ) : (
+                <>
+                  <XCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                  <span className="text-rose-300">Status: SALAH — Perhatikan Pembahasan</span>
+                </>
+              )}
+            </div>
+            {question.conceptTag && (
+              <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-slate-900/90 border border-slate-700 text-sky-300">
+                Konsep: {question.conceptTag}
+              </span>
             )}
           </div>
-          <p className="text-xs md:text-sm text-slate-200 leading-relaxed">{question.explanation}</p>
+
+          {/* Jawaban Benar */}
+          {prepared.kind === 'single' && correctSingleInfo && (
+            <div className="bg-slate-950/75 border border-emerald-500/35 rounded-lg px-3 py-2 text-xs md:text-sm">
+              <span className="font-bold text-emerald-300">Jawaban yang Benar: </span>
+              <span className="text-slate-100 font-medium">
+                {correctSingleInfo.letter}. {correctSingleInfo.opt.label}
+              </span>
+            </div>
+          )}
+
+          {prepared.kind === 'matching' && !isCorrect && (
+            <div className="bg-slate-950/75 border border-emerald-500/35 rounded-lg px-3 py-2 text-xs space-y-1">
+              <p className="font-bold text-emerald-300">Pasangan Konsep yang Benar:</p>
+              {prepared.question.pairs.map((p) => (
+                <p key={p.id} className="text-slate-200 leading-relaxed">
+                  • <span className="font-semibold text-white">{p.term}</span> → {p.match}
+                </p>
+              ))}
+            </div>
+          )}
+
+          {prepared.kind === 'sequence' && !isCorrect && canonicalSequence.length > 0 && (
+            <div className="bg-slate-950/75 border border-emerald-500/35 rounded-lg px-3 py-2 text-xs space-y-1">
+              <p className="font-bold text-emerald-300">Urutan Tahapan yang Benar:</p>
+              {canonicalSequence.map((step, i) => (
+                <p key={step.id} className="text-slate-200 leading-relaxed">
+                  {i + 1}. {step.label}
+                </p>
+              ))}
+            </div>
+          )}
+
+          {/* Letak Kekeliruan (jika salah) */}
+          {!isCorrect && (
+            <div className="bg-rose-950/45 border border-rose-500/35 rounded-lg px-3 py-2 text-xs md:text-sm text-rose-100 leading-relaxed">
+              <span className="font-bold text-rose-300 block mb-0.5">Letak Kekeliruan Konsep:</span>
+              {question.wrongExplanation
+                ? question.wrongExplanation
+                : prepared.kind === 'single' && chosenSingleOption
+                  ? `Pilihan yang kamu pilih belum tepat untuk membaca konteks "${question.topic}" karena mengarah pada kategori/ciri sosial yang berbeda.`
+                  : prepared.kind === 'matching'
+                    ? `Masih ada pasangan konsep pada "${question.topic}" yang tertukar definisi atau contoh penerapannya.`
+                    : `Susunan tahapan pada "${question.topic}" belum urut dari fase awal hingga fase lanjutannya.`}
+            </div>
+          )}
+
+          {/* Pembahasan Sosiologi (selalu tampil baik benar maupun salah) */}
+          <div className="text-xs md:text-sm text-slate-200 leading-relaxed">
+            <span className="font-bold text-sky-300 block mb-0.5">
+              {isCorrect ? 'Penguatan Pemahaman Sosiologi:' : 'Pembahasan Sosiologi:'}
+            </span>
+            {question.explanation}
+          </div>
+
           <div className="flex justify-end pt-1">
             <button
               onClick={() => {

@@ -24,11 +24,13 @@ import {
   CHAPTER_INFO,
   CUTSCENES,
   EMOTE_MAP,
+  evaluateSoloAchievementBadge,
   FIRST_MEETING_REACTIONS,
   getBatikMerahRequirements,
   IMPOSTOR_CHALLENGES,
   INVENTORY_ITEMS,
   MISSION_META,
+  pickHigherSoloBadge,
 } from './data/gameData';
 import {
   getChapterLockedDoorIds,
@@ -74,6 +76,7 @@ import {
 import {
   CHAPTER_UNLOCKED_EMOTES,
   createChapterReplayState,
+  generateSoloRunId,
   getChapterCutsceneId,
   getCompletedLockedRooms,
   getDefaultSaveState,
@@ -627,8 +630,12 @@ export default function App() {
   const enterSoloGameplay = useCallback(
     (latest: SaveState) => {
       soundEngine.playGameStart();
-      if (!latest.runStartedAt && !latest.completedChapters.includes(5)) {
-        const started: SaveState = { ...latest, runStartedAt: Date.now() };
+      if ((!latest.runStartedAt && !latest.completedChapters.includes(5)) || !latest.activeSoloRunId) {
+        const started: SaveState = {
+          ...latest,
+          runStartedAt: latest.runStartedAt || Date.now(),
+          activeSoloRunId: latest.activeSoloRunId || generateSoloRunId(),
+        };
         saveStateRef.current = started;
         setSaveState(started);
         persistSaveStateNow(started);
@@ -1170,7 +1177,11 @@ export default function App() {
     setView('multiplayer_lobby');
   }, [handleCancelEmote, mp]);
 
-  const handleCompleteMission = (missionId: MissionId, score: number) => {
+  const handleCompleteMission = (
+    missionId: MissionId,
+    score: number,
+    firstAttemptScore?: number
+  ) => {
     const currentReadBooks = saveStateRef.current.readBooks || [];
     if (!areRequiredBooksRead(missionId, currentReadBooks)) {
       soundEngine.playError();
@@ -1208,6 +1219,14 @@ export default function App() {
 
     const prevScore = prev.missionScores[missionId] ?? 0;
     const nextScores = { ...prev.missionScores, [missionId]: Math.max(prevScore, score) };
+    const existingFirst = prev.missionFirstScores?.[missionId];
+    const nextFirstScores = {
+      ...(prev.missionFirstScores || {}),
+      [missionId]:
+        typeof existingFirst === 'number'
+          ? existingFirst
+          : Math.max(0, Math.min(100, Math.round(firstAttemptScore ?? score))),
+    };
     const expGain = prevAlready ? 15 : Math.round(score * 1.5);
 
     const nextState: SaveState = {
@@ -1215,6 +1234,7 @@ export default function App() {
       prologSeen: true,
       completedMissions: updatedCompleted,
       missionScores: nextScores,
+      missionFirstScores: nextFirstScores,
       totalExp: prev.totalExp + expGain,
       activeCutsceneCheckpoint: shouldTriggerCutscene
         ? { cutsceneId: shouldTriggerCutscene, lineIndex: 0 }
@@ -1553,7 +1573,7 @@ export default function App() {
     }
   };
 
-  const handleFinishQuiz = (score: number, correctCount: number) => {
+  const handleFinishQuiz = (score: number, correctCount: number, totalCount = 12) => {
     setQuizOpen(false);
     const prev = saveStateRef.current;
     const elapsedMs = prev.runStartedAt ? Math.max(15000, Date.now() - prev.runStartedAt) : null;
@@ -1563,14 +1583,43 @@ export default function App() {
         : elapsedMs
       : (prev.bestCompletionMs ?? null);
 
+    const runId = prev.activeSoloRunId || generateSoloRunId();
+    const claimedIds = prev.claimedSoloBadgeRunIds || [];
+    const alreadyClaimedThisRun = claimedIds.includes(runId);
+
+    const badgeEval = evaluateSoloAchievementBadge({
+      state: prev,
+      quizCorrectCount: correctCount,
+      quizTotalCount: totalCount,
+      durationMs: elapsedMs,
+      runId,
+    });
+
+    const earnedBadge = badgeEval.eligible ? badgeEval.record : null;
+    const shouldAddNewClaim = Boolean(earnedBadge && !alreadyClaimedThisRun);
+    const nextClaimedIds = shouldAddNewClaim ? [...claimedIds, runId] : claimedIds;
+    const nextHistory = shouldAddNewClaim && earnedBadge
+      ? [...(prev.soloBadgeHistory || []), earnedBadge].slice(-25)
+      : prev.soloBadgeHistory || [];
+    const nextBestBadge = earnedBadge
+      ? pickHigherSoloBadge(prev.bestSoloBadge, earnedBadge.tier)
+      : prev.bestSoloBadge ?? null;
+
     const candidate: SaveState = {
       ...prev,
+      activeSoloRunId: runId,
       quizCompleted: true,
       quizScore: Math.max(prev.quizScore, score),
       quizCorrectCount: Math.max(prev.quizCorrectCount, correctCount),
-      soloCompletions: (prev.soloCompletions ?? 0) + 1,
-      totalExp: prev.totalExp + Math.round(score * 3),
+      soloCompletions: alreadyClaimedThisRun
+        ? (prev.soloCompletions ?? 1)
+        : (prev.soloCompletions ?? 0) + 1,
+      totalExp: alreadyClaimedThisRun ? prev.totalExp : prev.totalExp + Math.round(score * 3),
       bestCompletionMs: nextBestMs,
+      claimedSoloBadgeRunIds: nextClaimedIds,
+      soloBadgeHistory: nextHistory,
+      bestSoloBadge: nextBestBadge,
+      lastSoloBadgeRecord: earnedBadge ?? prev.lastSoloBadgeRecord ?? null,
       replayMode: false,
       pendingRankingSync: true,
       activeCutsceneCheckpoint: { cutsceneId: 'all_final', lineIndex: 0 },
@@ -1631,6 +1680,7 @@ export default function App() {
     const prev = saveStateRef.current;
     const next: SaveState = {
       ...getDefaultSaveState(),
+      activeSoloRunId: generateSoloRunId(),
       character: prev.character,
       settings: prev.settings,
       creatorInfo: prev.creatorInfo,
@@ -1640,6 +1690,10 @@ export default function App() {
       soloCompletions: prev.soloCompletions ?? 0,
       multiplayerCompletions: prev.multiplayerCompletions ?? 0,
       countedMatchIds: prev.countedMatchIds || [],
+      claimedSoloBadgeRunIds: prev.claimedSoloBadgeRunIds || [],
+      soloBadgeHistory: prev.soloBadgeHistory || [],
+      bestSoloBadge: prev.bestSoloBadge ?? null,
+      lastSoloBadgeRecord: prev.lastSoloBadgeRecord ?? null,
       metNpcs: prev.metNpcs || [],
       bestCompletionMs: prev.bestCompletionMs ?? null,
       totalExp: prev.totalExp,

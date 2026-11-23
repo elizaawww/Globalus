@@ -6,7 +6,7 @@ import { shuffleArray } from '../utils/questionShuffle';
 import { QuestionRenderer } from './QuestionRenderer';
 
 interface FinalQuizModalProps {
-  onFinishQuiz: (score: number, correctCount: number) => void;
+  onFinishQuiz: (score: number, correctCount: number, totalCount: number) => void;
   onClose: () => void;
 }
 
@@ -16,25 +16,28 @@ export const FinalQuizModal: React.FC<FinalQuizModalProps> = ({
 }) => {
   const questions = useMemo(() => shuffleArray(FINAL_QUIZ_QUESTIONS), []);
   const [idx, setIdx] = useState(0);
-  const [correctCount, setCorrectCount] = useState(0);
-  const [answeredCount, setAnsweredCount] = useState(0);
+  const [resultsByIdx, setResultsByIdx] = useState<Record<number, boolean>>({});
 
   const q = questions[idx];
   const total = questions.length;
 
+  const answeredCount = Object.keys(resultsByIdx).length;
+  const correctCount = Object.values(resultsByIdx).filter(Boolean).length;
+
   const handleResult = (correct: boolean) => {
-    setAnsweredCount((a) => a + 1);
-    if (correct) {
-      setCorrectCount((c) => c + 1);
-    }
+    setResultsByIdx((prev) => {
+      if (prev[idx] !== undefined) return prev;
+      return { ...prev, [idx]: correct };
+    });
   };
 
   const handleNext = () => {
     if (idx < total - 1) {
       setIdx((i) => i + 1);
     } else {
-      const finalScore = Math.round((correctCount / total) * 100);
-      onFinishQuiz(finalScore, correctCount);
+      const finalCorrect = Object.values(resultsByIdx).filter(Boolean).length;
+      const finalScore = Math.round((finalCorrect / total) * 100);
+      onFinishQuiz(finalScore, finalCorrect, total);
     }
   };
 
@@ -45,23 +48,23 @@ export const FinalQuizModal: React.FC<FinalQuizModalProps> = ({
     <div className="fixed inset-0 z-50 bg-slate-950/90 flex items-center justify-center p-3 md:p-6">
       <div className="w-full max-w-3xl max-h-[92vh] bg-[#080f24] border border-amber-400/40 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="px-5 py-3.5 border-b border-slate-800 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-3">
-            <Award className="w-6 h-6 text-amber-400" />
-            <div>
-              <h2 className="font-display text-lg md:text-xl font-bold text-white">
-                FINAL EVALUATION — HOTS QUIZ
+        <div className="px-5 py-3.5 border-b border-slate-800 flex items-center justify-between shrink-0 gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <Award className="w-6 h-6 text-amber-400 shrink-0" />
+            <div className="min-w-0">
+              <h2 className="font-display text-base md:text-xl font-bold text-white truncate">
+                FINAL EVALUATION — STUDI KASUS HOTS
               </h2>
-              <p className="text-xs text-slate-400">
-                Kategori: <span className="text-sky-300 font-semibold">{q.category}</span>
+              <p className="text-xs text-slate-400 truncate">
+                {q.subtopic || q.category}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 shrink-0">
             <div className="text-right">
               <p className="text-xs font-mono-num text-slate-300">
-                Soal {idx + 1} / {total}
+                Kasus {idx + 1} / {total}
               </p>
               <p className="text-[11px] font-mono-num text-amber-300">
                 Skor Sementara: {currentTempScore}
@@ -94,7 +97,7 @@ export const FinalQuizModal: React.FC<FinalQuizModalProps> = ({
             key={q.model.id}
             question={q.model}
             onResult={handleResult}
-            nextButtonLabel={idx < total - 1 ? 'SOAL BERIKUTNYA' : 'LIHAT HASIL & ENDING'}
+            nextButtonLabel={idx < total - 1 ? 'LANJUT · SOAL BERIKUTNYA' : 'LANJUT · LIHAT HASIL & BADGE'}
             onNext={handleNext}
           />
         </div>

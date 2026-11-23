@@ -83,10 +83,12 @@ export const ImpostorChallengeModal: React.FC<ImpostorChallengeModalProps> = ({
               {challenge.options.map((opt, idx) => {
                 const chosen = selected === idx;
                 const correctOpt = idx === challenge.correctIndex;
+                const letter = ['A', 'B', 'C', 'D'][idx] || String(idx + 1);
                 let cls = 'bg-slate-900/80 border-slate-700 text-slate-200 hover:border-rose-400/60';
                 if (submitted) {
                   if (correctOpt) cls = 'bg-emerald-500/15 border-emerald-400 text-emerald-200';
                   else if (chosen) cls = 'bg-rose-500/15 border-rose-400 text-rose-200';
+                  else cls = 'bg-slate-950/60 border-slate-800 text-slate-500';
                 } else if (chosen) {
                   cls = 'bg-rose-500/20 border-rose-400 text-white';
                 }
@@ -98,9 +100,12 @@ export const ImpostorChallengeModal: React.FC<ImpostorChallengeModalProps> = ({
                       soundEngine.playClick();
                       setSelected(idx);
                     }}
-                    className={`w-full p-3 rounded-xl border text-left text-xs md:text-sm transition-all cursor-pointer ${cls}`}
+                    className={`w-full p-3 rounded-xl border text-left text-xs md:text-sm transition-all flex items-start gap-2.5 cursor-pointer ${cls}`}
                   >
-                    {opt}
+                    <span className="w-6 h-6 rounded-md bg-slate-800 text-xs font-mono-num font-bold flex items-center justify-center shrink-0">
+                      {letter}
+                    </span>
+                    <span className="leading-relaxed">{opt}</span>
                   </button>
                 );
               })}
@@ -108,16 +113,35 @@ export const ImpostorChallengeModal: React.FC<ImpostorChallengeModalProps> = ({
 
             {submitted && (
               <div
-                className={`rounded-xl p-3.5 text-xs border ${
+                className={`rounded-xl p-3.5 text-xs border space-y-2 ${
                   isCorrect
-                    ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-200'
-                    : 'bg-amber-500/10 border-amber-500/40 text-amber-200'
+                    ? 'bg-emerald-500/15 border-emerald-400/50 text-emerald-100'
+                    : 'bg-rose-500/15 border-rose-400/50 text-rose-100'
                 }`}
               >
-                <p className="font-bold mb-1">
-                  {isCorrect ? 'Analisis Tepat! (+100 Skor Edukasi & Sabotase Aktif)' : 'Pembahasan Sosiologi:'}
+                <p className={`font-bold text-sm ${isCorrect ? 'text-emerald-300' : 'text-rose-300'}`}>
+                  {isCorrect
+                    ? 'Status: BENAR (+100 Skor Edukasi & Sabotase Aktif)'
+                    : 'Status: SALAH — Jawaban Belum Tepat'}
                 </p>
-                <p>{challenge.explanation}</p>
+                <div className="bg-slate-950/75 border border-emerald-500/35 rounded-lg px-3 py-2">
+                  <span className="font-bold text-emerald-300">Jawaban yang Benar: </span>
+                  <span className="text-slate-100">
+                    {(['A', 'B', 'C', 'D'][challenge.correctIndex] || '')}. {challenge.options[challenge.correctIndex]}
+                  </span>
+                </div>
+                {!isCorrect && (
+                  <p className="text-rose-200 leading-relaxed">
+                    <span className="font-bold text-rose-300">Letak Kekeliruan: </span>
+                    Pilihan sebelumnya keliru membaca konsep utama pada topik {challenge.topic}.
+                  </p>
+                )}
+                <p className="text-slate-200 leading-relaxed">
+                  <span className="font-bold text-sky-300 block mb-0.5">
+                    {isCorrect ? 'Penguatan Pemahaman Sosiologi:' : 'Pembahasan Sosiologi:'}
+                  </span>
+                  {challenge.explanation}
+                </p>
               </div>
             )}
 
@@ -141,9 +165,9 @@ export const ImpostorChallengeModal: React.FC<ImpostorChallengeModalProps> = ({
                       setSelected(null);
                     }
                   }}
-                  className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-display font-bold text-xs cursor-pointer"
+                  className="px-5 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-display font-bold text-xs cursor-pointer"
                 >
-                  {isCorrect ? 'SELESAIKAN MISI RAHASIA' : 'COBA LAGI'}
+                  {isCorrect ? 'LANJUT · SELESAIKAN MISI RAHASIA' : 'LANJUT · COBA LAGI'}
                 </button>
               )}
             </div>

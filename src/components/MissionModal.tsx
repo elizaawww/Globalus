@@ -16,7 +16,7 @@ interface MissionModalProps {
   alreadyCompleted: boolean;
   readBooks?: TheoryBookId[];
   onOpenBook?: (bookId: TheoryBookId) => void;
-  onComplete: (missionId: MissionId, score: number) => void;
+  onComplete: (missionId: MissionId, score: number, firstAttemptScore?: number) => void;
   onClose: () => void;
 }
 
@@ -53,6 +53,7 @@ export const MissionModal: React.FC<MissionModalProps> = ({
   const [questionResults, setQuestionResults] = useState<Record<number, QuestionAttemptRecord>>({});
   const [finished, setFinished] = useState(false);
   const [attemptKey, setAttemptKey] = useState(0);
+  const [firstAttemptScore, setFirstAttemptScore] = useState<number | null>(null);
 
   const total = questions.length;
   const currentQ = questions[qIdx];
@@ -77,6 +78,10 @@ export const MissionModal: React.FC<MissionModalProps> = ({
     if (qIdx < total - 1) {
       setQIdx((i) => i + 1);
     } else {
+      if (firstAttemptScore === null && total > 0) {
+        const c = Object.values(questionResults).filter((r) => r.isCorrect).length;
+        setFirstAttemptScore(Math.round((c / total) * 100));
+      }
       setFinished(true);
     }
   };
@@ -103,7 +108,7 @@ export const MissionModal: React.FC<MissionModalProps> = ({
       return;
     }
     soundEngine.playTaskComplete();
-    onComplete(missionId, 100);
+    onComplete(missionId, 100, firstAttemptScore ?? finalScore);
   };
 
   const progressPct = total > 0 ? (answeredCount / total) * 100 : 100;
@@ -246,7 +251,7 @@ export const MissionModal: React.FC<MissionModalProps> = ({
               key={`${missionId}_${currentQ.id}_${attemptKey}`}
               question={currentQ}
               onResult={handleResult}
-              nextButtonLabel={qIdx < total - 1 ? 'SOAL BERIKUTNYA' : 'PERIKSA HASIL MISI'}
+              nextButtonLabel={qIdx < total - 1 ? 'LANJUT · SOAL BERIKUTNYA' : 'LANJUT · PERIKSA HASIL'}
               onNext={handleNext}
             />
           ) : (
